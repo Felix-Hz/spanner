@@ -16,6 +16,7 @@ nvml-wrapper = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tao = "0.37"
+tray-icon = "0.26"
 wry = "0.57"
 
 # Same major as wry's own windows dependency, so one copy is compiled.

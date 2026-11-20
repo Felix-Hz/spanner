@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, TRUE};
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
 };
 use windows::core::{BOOL, PWSTR};
 
@@ -30,7 +30,7 @@ unsafe extern "system" fn visit(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let search = unsafe { &mut *(lparam.0 as *mut Search) };
     let mut text = [0u16; 128];
     let n = unsafe { GetWindowTextW(hwnd, &mut text) } as usize;
-    if unsafe { IsWindowVisible(hwnd) }.as_bool() && text[..n] == search.title[..] {
+    if text[..n] == search.title[..] {
         let mut pid = 0;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
         // Match on the executable too, so an Explorer window named "spanner" is never picked.
@@ -48,6 +48,9 @@ pub fn activate(title: &str) -> bool {
     unsafe {
         let _ = EnumWindows(Some(visit), LPARAM(&raw mut search as isize));
         let Some(hwnd) = search.found else { return false };
+        if !IsWindowVisible(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+        }
         if IsIconic(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
         }

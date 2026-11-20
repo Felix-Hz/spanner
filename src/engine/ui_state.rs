@@ -26,11 +26,19 @@ pub struct Placement {
     pub maximized: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiState {
     pub theme: Theme,
     pub placement: Option<Placement>,
+    /// Closing the window hides it to the notification area instead of quitting.
+    pub close_to_tray: bool,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self { theme: Theme::default(), placement: None, close_to_tray: true }
+    }
 }
 
 impl UiState {
@@ -59,7 +67,11 @@ mod tests {
         let p = std::env::temp_dir().join(format!("spanner_ui_{}.json", std::process::id()));
         fs::write(&p, b"nope").unwrap();
         assert_eq!(UiState::load(&p), UiState::default());
-        let s = UiState { theme: Theme::Dark, placement: Some(Placement { x: -8, y: 10, width: 940, height: 640, maximized: false }) };
+        let s = UiState {
+            theme: Theme::Dark,
+            placement: Some(Placement { x: -8, y: 10, width: 940, height: 640, maximized: false }),
+            close_to_tray: false,
+        };
         s.save(&p).unwrap();
         assert_eq!(UiState::load(&p), s);
         fs::remove_file(p).unwrap();

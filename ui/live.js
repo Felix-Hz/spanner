@@ -56,7 +56,7 @@ let timer = null;
 let generation = 0;
 
 function build() {
-  fill(document.getElementById("figures"), 
+  fill(document.getElementById("figures"),
     ...GROUPS.map(([title, items]) =>
       collapsible(
         "live",
@@ -137,7 +137,7 @@ function setPeriod(secs) {
 function renderRate() {
   const custom = !RATES.includes(periodSecs);
   const [min, max] = CUSTOM_RANGE;
-  fill(document.getElementById("live-rate"), 
+  fill(document.getElementById("live-rate"),
     h("span", { class: "meta" }, "Refresh every"),
     h(
       "div",

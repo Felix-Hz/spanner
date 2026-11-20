@@ -15,6 +15,8 @@ const RANGES = [
   ["custom", "Custom", null],
 ];
 const POWER = [["any", "Any power"], ["ac", "Plugged in"], ["battery", "On battery"]];
+const MIN_SPAN = 5 * 60_000;
+const MAX_SPAN = 400 * 24 * HOUR;
 const DEFAULT_METRICS = ["cpu_temp", "gpu_temp", "gpu_limited", "cpu_fan", "gpu_power", "cpu_util"];
 
 /** "Data from" values: everything, any tracked app, or one app by display name. */
@@ -29,6 +31,8 @@ const state = {
   power: prefs.get("history.power", "any"),
   source: prefs.get("history.source", ALL),
   metrics: new Set(prefs.get("history.metrics", DEFAULT_METRICS)),
+  /** A zoomed window, overriding the range until reset. */
+  zoom: null,
 };
 
 let catalogue = [];
@@ -105,14 +109,59 @@ function sourceSelect() {
   return h("label", { class: "inline-field" }, h("span", {}, "Data from"), sel);
 }
 
+// ── Zoom ──
+
+/** Zooms the current window by `factor` (below 1 zooms in) around a point given as a 0..1 fraction. */
+function zoomBy(factor, at = 0.5) {
+  const [from, to] = timeWindow();
+  const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, (to - from) * factor));
+  const pivot = from + (to - from) * at;
+  let next = [pivot - span * at, pivot + span * (1 - at)];
+  // Never past now: shift back instead of showing empty future.
+  const now = Date.now();
+  if (next[1] > now) next = [next[0] - (next[1] - now), now];
+  setZoom(next);
+}
+
+function setZoom(window) {
+  state.zoom = window;
+  buildZoom();
+  query();
+}
+
+function resetZoom() {
+  if (!state.zoom) return;
+  setZoom(null);
+}
+
+function buildZoom() {
+  fill(
+    document.getElementById("zoom"),
+    h("button", { type: "button", class: "button", title: "Zoom out (−)", "aria-label": "Zoom out", onclick: () => zoomBy(2) }, "−"),
+    h("button", { type: "button", class: "button", title: "Zoom in (+)", "aria-label": "Zoom in", onclick: () => zoomBy(0.5) }, "+"),
+    state.zoom ? h("button", { type: "button", class: "button", title: "Back to the selected range (0)", onclick: resetZoom }, "Reset zoom") : null,
+  );
+}
+
+document.addEventListener("keydown", (e) => {
+  if (!visible || e.ctrlKey || e.altKey || e.metaKey || e.target.closest("input, select, textarea")) return;
+  if (e.key === "+" || e.key === "=") zoomBy(0.5);
+  else if (e.key === "-") zoomBy(2);
+  else if (e.key === "0") resetZoom();
+});
+
 function build() {
-  fill(document.getElementById("range"), 
+  fill(
+    document.getElementById("range"),
     seg("Time range", RANGES, state.range, (k) => {
       if (k === "custom" && state.from == null) [state.from, state.to] = [Date.now() - 24 * HOUR, Date.now()];
       state.range = k;
+      state.zoom = null;
       changed();
     }),
+    h("span", { class: "zoom", id: "zoom", role: "group", "aria-label": "Zoom" }),
   );
+  buildZoom();
 
   const custom =
     state.range === "custom"
@@ -135,7 +184,7 @@ function build() {
       : null;
 
   const groups = [...new Set(catalogue.map((m) => m.group))];
-  fill(document.getElementById("filters"), 
+  fill(document.getElementById("filters"),
     custom,
     sourceSelect(),
     seg("Power source", POWER, state.power, (k) => ((state.power = k), changed())),
@@ -170,6 +219,7 @@ function build() {
 }
 
 function timeWindow() {
+  if (state.zoom) return state.zoom;
   if (state.range !== "custom") {
     const span = RANGES.find(([k]) => k === state.range)[2];
     const to = Date.now();
@@ -232,15 +282,20 @@ function updateApps(usage) {
 function render(res, width) {
   const sub = document.getElementById("history-sub");
   const scope = sourceLabel();
-  sub.textContent = [fmtRange(res.from_ms, res.to_ms), scope, res.samples ? `${res.samples.toLocaleString("en-NZ")} samples` : null].filter(Boolean).join(" · ");
+  sub.textContent = [fmtRange(res.from_ms, res.to_ms), state.zoom ? "zoomed" : null, scope, res.samples ? `${res.samples.toLocaleString("en-NZ")} samples` : null].filter(Boolean).join(" · ");
   if (res.samples === 0) {
     charts = [];
     const filtered = state.source !== ALL || state.power !== "any";
     fill(chartsEl, h("p", { class: "empty" }, filtered ? "Nothing matches these filters in this range." : "No samples in this range."));
     return;
   }
-  const hover = (i) => charts.forEach((c) => c.setCursor(i));
-  charts = res.series.map((sr) => chart(sr, res, width, hover));
+  const span = res.to_ms - res.from_ms;
+  const handlers = {
+    hover: (i) => charts.forEach((c) => c.setCursor(i)),
+    select: (a, b) => setZoom([res.from_ms + a * span, res.from_ms + Math.max(b * span, a * span + MIN_SPAN)]),
+    zoom: (at, factor) => zoomBy(factor, at),
+  };
+  charts = res.series.map((sr) => chart(sr, res, width, handlers));
   fill(chartsEl, ...charts.map((c) => c.el));
 }
 

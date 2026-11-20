@@ -1,5 +1,6 @@
 // Time-series chart: min–max band, mean line, gaps where no data. Hover cursors are synchronised by
-// the caller through onHover/setCursor.
+// the caller through `on.hover` and `setCursor`. Zooming is reported as fractions of the plot width:
+// `on.select(from, to)` after a drag, `on.zoom(at, factor)` for Ctrl + scroll.
 
 import { s, h, auto, withUnit, unitSep, fmtTime, fmtDay, fmtFull, fill } from "./format.js";
 
@@ -57,7 +58,7 @@ function runs(buckets) {
   return out;
 }
 
-export function chart(series, meta, width, onHover) {
+export function chart(series, meta, width, on) {
   const n = series.buckets.length;
   const plotW = Math.max(10, width - PAD.left - PAD.right);
   const plotH = HEIGHT - PAD.top - PAD.bottom;
@@ -68,7 +69,7 @@ export function chart(series, meta, width, onHover) {
   const stats = h("span", { class: "stats" });
   const st = series.stats;
   const summary = () =>
-    fill(stats, 
+    fill(stats,
       ...(st
         ? series.id === "gpu_limited"
           ? [h("b", {}, `${auto(st.avg)}%`), " of the time"]
@@ -123,17 +124,54 @@ export function chart(series, meta, width, onHover) {
     band += `${top}${bottom}Z`;
   }
 
+  const selection = s("rect", { class: "selection", y: PAD.top, height: plotH, visibility: "hidden" });
   const cursor = s("line", { class: "cursor", y1: PAD.top, y2: PAD.top + plotH, visibility: "hidden" });
   const dot = s("circle", { class: "dot", r: 3, visibility: "hidden" });
-  svg.append(grid, s("path", { class: "band", d: band }), s("path", { class: "line", d: line }), axis, cursor, dot);
+  svg.append(grid, selection, s("path", { class: "band", d: band }), s("path", { class: "line", d: line }), axis, cursor, dot);
 
-  const indexAt = (e) => {
+  /** Pointer position as a fraction of the plot width, clamped to 0..1. */
+  const fractionAt = (e) => {
     const r = svg.getBoundingClientRect();
     const px = ((e.clientX - r.left) / r.width) * width;
-    return Math.min(n - 1, Math.max(0, Math.floor(((px - PAD.left) / plotW) * n)));
+    return Math.min(1, Math.max(0, (px - PAD.left) / plotW));
   };
-  svg.addEventListener("pointermove", (e) => onHover(indexAt(e)));
-  svg.addEventListener("pointerleave", () => onHover(null));
+  const indexAt = (e) => Math.min(n - 1, Math.floor(fractionAt(e) * n));
+
+  // Drag to select a stretch of time; a click without movement does nothing.
+  let dragFrom = null;
+  const drawSelection = (a, b) => {
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    selection.setAttribute("x", PAD.left + lo * plotW);
+    selection.setAttribute("width", Math.max(0, (hi - lo) * plotW));
+    selection.setAttribute("visibility", "visible");
+  };
+  svg.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    dragFrom = fractionAt(e);
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", (e) => {
+    on.hover(indexAt(e));
+    if (dragFrom != null) drawSelection(dragFrom, fractionAt(e));
+  });
+  svg.addEventListener("pointerup", (e) => {
+    if (dragFrom == null) return;
+    const to = fractionAt(e);
+    const from = dragFrom;
+    dragFrom = null;
+    selection.setAttribute("visibility", "hidden");
+    if (Math.abs(to - from) * plotW >= 6) on.select(Math.min(from, to), Math.max(from, to));
+  });
+  svg.addEventListener("pointerleave", () => dragFrom == null && on.hover(null));
+  svg.addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      on.zoom(fractionAt(e), e.deltaY < 0 ? 0.5 : 2);
+    },
+    { passive: false },
+  );
 
   function setCursor(i) {
     const b = i == null ? null : series.buckets[i];

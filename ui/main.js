@@ -52,11 +52,27 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-document.addEventListener("visibilitychange", () => {
-  if (!current) return;
-  if (document.hidden) pages[current].hide?.();
-  else pages[current].show();
-});
+// Pause polling while the window is hidden (minimised, or closed to the tray) and resume when it returns.
+let hidden = false;
+
+function pause() {
+  if (hidden || !current) return;
+  hidden = true;
+  pages[current].hide?.();
+}
+
+function resume() {
+  if (!hidden || !current) return;
+  hidden = false;
+  pages[current].show();
+  refreshStatus();
+}
+
+document.addEventListener("visibilitychange", () => (document.hidden ? pause() : resume()));
+document.addEventListener("spanner-hidden", pause);
+document.addEventListener("spanner-shown", resume);
+// A second launch can reveal the window without the "shown" event; focus covers that case.
+window.addEventListener("focus", resume);
 
 // ── Window behaviour: an app, not a web page ──
 
@@ -82,7 +98,7 @@ async function refreshStatus() {
     const battery = st.battery_pct == null ? "" : ` · ${st.battery_pct}%`;
     sb.power.textContent = `${st.on_ac ? "Plugged in" : "On battery"}${battery}`;
     sb.plan.textContent = st.power_profile ? `${st.power_profile} plan` : "";
-    fill(sb.recorder, 
+    fill(sb.recorder,
       !recorderInstalled
         ? "Background recording not set up"
         : !st.recorder_running
@@ -109,6 +125,6 @@ document.addEventListener("recorder-changed", () => {
   recorderInstalled = true;
   refreshStatus();
 });
-setInterval(() => !document.hidden && refreshStatus(), 5000);
+setInterval(() => !hidden && !document.hidden && refreshStatus(), 5000);
 
 select(prefs.get("page", "configure"));

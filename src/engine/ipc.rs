@@ -51,6 +51,12 @@ struct NameParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct OnParams {
+    on: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ThemeParams {
     theme: Theme,
 }
@@ -75,6 +81,8 @@ pub enum Request {
     DeletePreset(String),
     /// Handled on the UI thread: it owns the window.
     SetTheme(Theme),
+    /// Handled on the UI thread.
+    SetCloseToTray(bool),
 }
 
 impl Request {
@@ -105,6 +113,7 @@ pub fn parse(body: &str) -> Result<(u32, Request)> {
         "presets" => Request::Presets,
         "save_preset" => Request::SavePreset(serde_json::from_value(p)?),
         "delete_preset" => Request::DeletePreset(serde_json::from_value::<NameParams>(p)?.name),
+        "set_close_to_tray" => Request::SetCloseToTray(serde_json::from_value::<OnParams>(p)?.on),
         "set_theme" => Request::SetTheme(serde_json::from_value::<ThemeParams>(p)?.theme),
         other => return Err(Error(format!("unknown method '{other}'"))),
     };

@@ -38,7 +38,7 @@ Power settings and monitoring work on any Windows laptop. Fan modes, performance
 
 **Live.** Temperatures, load, clocks, GPU power and memory, fan speeds and battery, with a short trend under each. It refreshes every 5 seconds by default; the selector at the top offers 1, 5, 15, 30 or 60 seconds, or any interval up to 10 minutes. Figures turn cobalt when something needs attention, such as a CPU near its thermal limit or a GPU being held back by heat or power.
 
-**History.** Every reading the recorder takes, charted as a minimum to maximum band with the average drawn through it. Filter by time range, by mains or battery power, and by **Data from**: everything, any tracked app, or one game, listed with how long it ran in the range. Each chart shows the average, 95th percentile and maximum for the range, and hovering one chart moves the cursor on all of them.
+**History.** Every reading the recorder takes, charted as a minimum to maximum band with the average drawn through it. Filter by time range, by mains or battery power, and by **Data from**: everything, any tracked app, or one game, listed with how long it ran in the range. Each chart shows the average, 95th percentile and maximum for the range, and hovering one chart moves the cursor on all of them. To zoom, drag across a chart, hold Ctrl and scroll, or use the − and + buttons (or the `-`, `+` and `0` keys).
 
 ## Supported hardware
 
@@ -89,9 +89,9 @@ Open the Desktop shortcut. Windows asks for administrator approval each time, be
 | Configure | Change a setting; it applies straight away, and the confirmation offers Undo      |
 | Live      | Watch the machine right now                                                       |
 | History   | Look back over any range, filtered by power source or by tracked apps             |
-| Settings  | Theme, background recording and tracked apps, your presets, and Uninstall          |
+| Settings  | Theme, what the close button does, background recording and tracked apps, presets, and Uninstall |
 
-`Ctrl+1` to `Ctrl+4` switch pages. The status bar shows the power source, whether the recorder is running, the power plan and the machine. spanner remembers its window size and position, and opening it again brings the existing window forward.
+`Ctrl+1` to `Ctrl+4` switch pages. Closing the window minimises spanner to the notification area by default; click its icon to open it again, or right-click and choose **Quit spanner**. Settings › Appearance › Close button changes this to quit instead. The status bar shows the power source, whether the recorder is running, the power plan and the machine. spanner remembers its window size and position, and opening it again brings the existing window forward.
 
 ### Tracked apps
 

@@ -6,7 +6,9 @@ import { ago, h, toast, fill } from "./format.js";
 
 const root = document.getElementById("app-settings");
 const THEMES = [["system", "System"], ["light", "Light"], ["dark", "Dark"]];
+const CLOSE = [["tray", "Minimise to tray"], ["quit", "Quit"]];
 let theme = "system";
+let closeToTray = true;
 let info = null;
 let recorder = null; // { installed, running, start_at_sign_in, last_sample_ms, config }
 let presets = [];
@@ -21,6 +23,14 @@ function setTheme(t) {
   paintTheme(t);
   render();
   call("set_theme", { theme: t }).catch((e) => toast(`Couldn't save the theme. ${e.message}`));
+}
+
+function setCloseToTray(on) {
+  closeToTray = on;
+  render();
+  call("set_close_to_tray", { on })
+    .then(() => toast(on ? "Closing the window now keeps spanner in the notification area." : "Closing the window now quits spanner."))
+    .catch((e) => toast(`Couldn't save this setting. ${e.message}`));
 }
 
 // ── Recorder ──
@@ -250,8 +260,16 @@ function presetsSection() {
 }
 
 function render() {
-  fill(root, 
-    section("Appearance", row("Theme", "System follows the Windows setting.", seg("Theme", THEMES, theme, setTheme))),
+  fill(root,
+    section(
+      "Appearance",
+      row("Theme", "System follows the Windows setting.", seg("Theme", THEMES, theme, setTheme)),
+      row(
+        "Close button",
+        "Minimising keeps spanner running in the notification area, where a click opens it again. Background recording runs either way.",
+        seg("Close button", CLOSE, closeToTray ? "tray" : "quit", (k) => setCloseToTray(k === "tray")),
+      ),
+    ),
     recorder ? recorderSection(recorder) : null,
     presetsSection(),
     info
@@ -283,6 +301,7 @@ function render() {
 async function load() {
   try {
     [info, recorder, presets] = await Promise.all([overview, call("recorder_status"), call("presets")]);
+    closeToTray = info.close_to_tray ?? true;
   } catch (e) {
     toast(`Couldn't read the settings. ${e.message}`, { ms: 7000 });
   }
