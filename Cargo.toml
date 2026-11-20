@@ -1,0 +1,49 @@
+[package]
+name = "spanner"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100"
+description = "Tune and monitor Windows laptops: power, fans, charging, and a recorded history of how they run."
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "spanner"
+path = "src/main.rs"
+
+[dependencies]
+nvml-wrapper = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tao = "0.37"
+wry = "0.57"
+
+# Same major as wry's own windows dependency, so one copy is compiled.
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Ole",
+  "Win32_System_Performance",
+  "Win32_System_Power",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+  "Win32_System_Wmi",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+]
+
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

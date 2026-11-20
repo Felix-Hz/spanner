@@ -1,0 +1,5 @@
+#define RT_MANIFEST 24
+
+// Ordinal 1: exe, shortcut and Installed apps icon; also loaded as the window icon.
+1 ICON "spanner.ico"
+1 RT_MANIFEST "spanner.manifest"

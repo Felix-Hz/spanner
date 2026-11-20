@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>spanner</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/main.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand">
+        <img src="/icon.svg" alt="" width="20" height="20" draggable="false">
+        <span class="wordmark">spanner</span>
+      </div>
+
+      <nav class="nav" role="tablist" aria-orientation="vertical" aria-label="Sections">
+        <button role="tab" id="tab-configure" aria-controls="configure" aria-selected="true">
+          <span>Configure</span><kbd>Ctrl 1</kbd>
+        </button>
+        <button role="tab" id="tab-live" aria-controls="live" aria-selected="false" tabindex="-1">
+          <span>Live</span><kbd>Ctrl 2</kbd>
+        </button>
+        <button role="tab" id="tab-history" aria-controls="history" aria-selected="false" tabindex="-1">
+          <span>History</span><kbd>Ctrl 3</kbd>
+        </button>
+        <button role="tab" id="tab-settings" aria-controls="settings-page" aria-selected="false" tabindex="-1">
+          <span>Settings</span><kbd>Ctrl 4</kbd>
+        </button>
+      </nav>
+    </aside>
+
+    <main class="pages">
+      <section class="page" id="configure" role="tabpanel" aria-labelledby="tab-configure">
+        <header class="page-head">
+          <div>
+            <h1>Configure</h1>
+            <p class="page-sub">Changes take effect immediately.</p>
+          </div>
+          <div class="page-actions" id="presets-menu"></div>
+        </header>
+        <div class="page-body" id="settings" aria-busy="true"></div>
+      </section>
+
+      <section class="page" id="live" role="tabpanel" aria-labelledby="tab-live" hidden>
+        <header class="page-head">
+          <div>
+            <h1>Live</h1>
+            <p class="page-sub" id="live-sub">&nbsp;</p>
+          </div>
+          <div class="page-actions" id="live-rate"></div>
+        </header>
+        <div class="page-body" id="figures"></div>
+      </section>
+
+      <section class="page" id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
+        <header class="page-head">
+          <div>
+            <h1>History</h1>
+            <p class="page-sub" id="history-sub">&nbsp;</p>
+          </div>
+          <div class="page-actions" id="range"></div>
+        </header>
+        <div class="page-body">
+          <div class="filters" id="filters"></div>
+          <div id="charts" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="page" id="settings-page" role="tabpanel" aria-labelledby="tab-settings" hidden>
+        <header class="page-head">
+          <div>
+            <h1>Settings</h1>
+            <p class="page-sub">How spanner looks and records.</p>
+          </div>
+        </header>
+        <div class="page-body" id="app-settings"></div>
+      </section>
+    </main>
+
+    <footer class="statusbar" aria-label="Status">
+      <span id="sb-power"></span>
+      <span id="sb-recorder"></span>
+      <span class="spacer"></span>
+      <span id="sb-plan"></span>
+      <span id="sb-machine"></span>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <div class="toast-main">
+      <button class="toast-more" id="toast-more" type="button" aria-expanded="false" aria-controls="toast-details" aria-label="Show what changed" hidden>›</button>
+      <span id="toast-text"></span>
+      <button class="link" id="toast-action" type="button" hidden></button>
+    </div>
+    <ul class="toast-details" id="toast-details" hidden></ul>
+  </div>
+
+  <dialog class="sheet" id="preset-dialog" aria-labelledby="preset-title">
+    <form method="dialog">
+      <h2 id="preset-title">Save preset</h2>
+      <p>Saves the current value of every setting on the Configure page. Applying the preset later sets them all back to these values.</p>
+      <label class="field">
+        <span>Name</span>
+        <input type="text" id="preset-name" maxlength="40" required autocomplete="off" spellcheck="false" placeholder="Quiet evening">
+      </label>
+      <p class="meta" id="preset-replace" hidden>A preset with this name exists and will be replaced.</p>
+      <div class="sheet-actions">
+        <button class="button" value="cancel" formnovalidate>Cancel</button>
+        <button class="button primary" value="save" id="preset-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="sheet" id="uninstall-dialog" aria-labelledby="uninstall-title">
+    <form method="dialog">
+      <h2 id="uninstall-title">Uninstall spanner?</h2>
+      <p>This removes the background recorder, all recorded history, the Desktop shortcut and the entry in Installed apps. The program files stay where you built them.</p>
+      <label class="check"><input type="checkbox" id="uninstall-restore" checked> Restore default settings first</label>
+      <div class="sheet-actions">
+        <button class="button" value="cancel">Cancel</button>
+        <button class="button primary" value="confirm">Uninstall</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
