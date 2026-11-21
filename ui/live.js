@@ -125,8 +125,48 @@ function build() {
 const storageBody = h("div", { class: "storage" }, h("p", { class: "empty" }, "Reading the drive…"));
 let storageTimer = null;
 
+// The parts the chips switch, keyed into the same hidden set as the reading tiles.
+const STORAGE_PARTS = [
+  ["storage.disk", "Disk"],
+  ["storage.where", "Where it goes"],
+  ["storage.largest", "Largest"],
+];
+
+function showStorageParts() {
+  for (const [key] of STORAGE_PARTS) {
+    for (const el of storageBody.querySelectorAll(`[data-part="${key}"]`)) el.hidden = hiddenTiles.has(key);
+  }
+}
+
 function storageSection() {
-  return collapsible("live", "storage", "Storage", storageBody);
+  const chips = h(
+    "div",
+    { class: "chips aside", role: "group", "aria-label": "Storage parts to show" },
+    STORAGE_PARTS.map(([key, label]) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: "chip",
+          "aria-pressed": String(!hiddenTiles.has(key)),
+          onclick: (e) => {
+            const showing = STORAGE_PARTS.filter(([k]) => !hiddenTiles.has(k));
+            if (!hiddenTiles.has(key) && showing.length === 1) {
+              toast("At least one part has to stay on in each section.", { kind: "info" });
+              return;
+            }
+            if (hiddenTiles.has(key)) hiddenTiles.delete(key);
+            else hiddenTiles.add(key);
+            prefs.set("live.hidden", [...hiddenTiles]);
+            e.currentTarget.setAttribute("aria-pressed", String(!hiddenTiles.has(key)));
+            showStorageParts();
+          },
+        },
+        label,
+      ),
+    ),
+  );
+  return collapsible("live", "storage", "Storage", storageBody, null, chips);
 }
 
 const gbOf = (b) => `${num(b / 1e9, b >= 1e11 ? 0 : 1)} GB`;
@@ -164,7 +204,7 @@ function renderStorage(st) {
     parts.push(
       h(
         "div",
-        { class: "tiles" },
+        { class: "tiles", "data-part": "storage.disk" },
         h("article", { class: "tile" }, h("span", { class: "label" }, `Disk used · ${d.root}`), h("span", { class: "num" }, num(pct(used, d.total_bytes)), h("small", {}, "%")), h("span", { class: "sub" }, `${gbOf(used)} of ${gbOf(d.total_bytes)}`)),
         h("article", { class: "tile" }, h("span", { class: "label" }, "Free"), h("span", { class: "num" }, num(d.free_bytes / 1e9), h("small", {}, "GB")), h("span", { class: "sub" }, d.free_bytes / d.total_bytes < 0.1 ? "Running low" : "")),
       ),
@@ -173,10 +213,10 @@ function renderStorage(st) {
   const last = st.last;
   if (last && d) {
     parts.push(
-      h("h3", { class: "eyebrow storage-h" }, "Where it goes"),
-      h("ol", { class: "rank" }, last.categories.map((c) => rankRow(c.name, null, c.bytes, last.categories[0].bytes, d.total_bytes))),
-      h("h3", { class: "eyebrow storage-h" }, "Largest"),
-      h("ol", { class: "rank" }, last.largest.map((i) => rankRow(i.name, i.path, i.bytes, last.largest[0].bytes, d.total_bytes))),
+      h("h3", { class: "eyebrow storage-h", "data-part": "storage.where" }, "Where it goes"),
+      h("ol", { class: "rank", "data-part": "storage.where" }, last.categories.map((c) => rankRow(c.name, null, c.bytes, last.categories[0].bytes, d.total_bytes))),
+      h("h3", { class: "eyebrow storage-h", "data-part": "storage.largest" }, "Largest"),
+      h("ol", { class: "rank", "data-part": "storage.largest" }, last.largest.map((i) => rankRow(i.name, i.path, i.bytes, last.largest[0].bytes, d.total_bytes))),
     );
   }
   const btn = h("button", { type: "button", class: "button", disabled: st.scanning, onclick: (e) => scanStorage(e.currentTarget) }, last ? "Scan again" : "Scan");
@@ -187,6 +227,7 @@ function renderStorage(st) {
       : "Not scanned yet. A scan reads every folder on the drive and takes under a minute; it runs at low priority.";
   parts.push(h("div", { class: "storage-foot" }, h("span", { class: "meta" }, note), btn));
   fill(storageBody, parts);
+  showStorageParts();
 }
 
 /** While a scan runs, refresh quickly; otherwise every minute, for free space. */
