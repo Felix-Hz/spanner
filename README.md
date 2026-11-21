@@ -123,6 +123,7 @@ Everything stays on your machine.
 |--------------------------------------------|-----------------------------------------|
 | Recorded history (one file per day)        | `%ProgramData%\spanner\history`         |
 | Recorder settings                          | `%ProgramData%\spanner\recorder.json`   |
+| Last storage scan: totals and the five largest folders, with paths | `%ProgramData%\spanner\storage.json` |
 | Window preferences and web view cache      | `%LOCALAPPDATA%\spanner`                |
 
 The recorder samples every 5 seconds by default and keeps 30 days, about 21 MB. It runs at below-normal priority. On battery it leaves the Nvidia GPU asleep unless something else has already woken it, so recording does not cost battery life.
