@@ -5,6 +5,7 @@ mod ec;
 mod info;
 mod install;
 mod paths;
+mod pipe;
 mod plans;
 mod sensors;
 mod window;

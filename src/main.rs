@@ -16,6 +16,14 @@ const UNINSTALL_PROMPT: &str = "Uninstall spanner?\n\n\
     Settings you changed stay as they are. To undo them first, open spanner and choose Restore defaults.";
 
 fn run(arg: Option<&str>) -> Result<()> {
+    // Installing and uninstalling change Task Scheduler and need elevation; the window and recorder don't
+    // ask for it (the recorder is elevated by its task). Relaunch with one consent prompt.
+    if let Some(a @ ("--install" | "--uninstall")) = arg
+        && !System::is_elevated()
+    {
+        let code = System::run_elevated(a)?;
+        std::process::exit(code as i32);
+    }
     match arg {
         None => app::run(),
         Some("--record") => recorder::run(),

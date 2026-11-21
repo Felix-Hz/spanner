@@ -69,6 +69,13 @@ pub struct RecorderConfig {
     /// Full-speed fans "When hot": the recorder switches them by temperature (see `fan_policy`).
     #[serde(default)]
     pub auto_full_speed: bool,
+    /// Write samples to history. Off keeps the recorder running as the window's broker without recording.
+    #[serde(default = "yes")]
+    pub record: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for RecorderConfig {
@@ -78,6 +85,7 @@ impl Default for RecorderConfig {
             retention_days: 30,
             tracked_apps: vec![TrackedApp::new("PlanetZoo.exe", "Planet Zoo")],
             auto_full_speed: false,
+            record: true,
         }
     }
 }

@@ -10,3 +10,4 @@ pub mod error;
 pub mod hw;
 pub mod platform;
 pub mod recorder;
+pub mod service;

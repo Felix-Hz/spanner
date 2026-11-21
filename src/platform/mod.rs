@@ -189,6 +189,14 @@ pub trait Integration {
     fn lower_priority();
     /// Brings this program's existing main window to the front. Returns false if none was found.
     fn activate_existing_window(title: &str) -> bool;
+    /// Whether this process runs with an elevated (administrator) token.
+    fn is_elevated() -> bool;
+    /// Runs this executable with `arg` elevated (one consent prompt) and waits; returns its exit code.
+    fn run_elevated(arg: &str) -> Result<u32>;
+    /// The recorder's broker: serves the window's requests until the process ends.
+    fn serve_broker(handle: impl FnMut(&str) -> String) -> Result<()>;
+    /// Sends one request to the broker and returns its reply.
+    fn broker_call(msg: &str) -> Result<String>;
 }
 
 /// Holds a `single_instance` lock.

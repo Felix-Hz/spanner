@@ -11,6 +11,16 @@ use crate::engine::time::{day_of, now_ms};
 use crate::error::{Error, Result};
 use crate::hw::Access;
 use crate::platform::{Integration, Native, Paths, Platform, System};
+use crate::service;
+
+/// The window's broker: its own sampler on its own thread (the platform handles are thread-bound).
+fn spawn_broker(tracked: std::collections::HashSet<String>) {
+    let _ = std::thread::Builder::new().name("broker".into()).spawn(move || {
+        let mut sampler = Sampler::<Native>::new(tracked);
+        // If the pipe can't be created the recorder keeps recording; the window reports the service as down.
+        let _ = System::serve_broker(|body| service::broker_reply(&mut sampler, body));
+    });
+}
 
 pub fn run() -> Result<()> {
     let Some(_lock) = System::single_instance("spanner_recorder") else { return Ok(()) };
@@ -22,6 +32,7 @@ pub fn run() -> Result<()> {
     let mut cfg_mtime = mtime(&cfg_path);
     let mut writer = Writer::new(&dir)?;
     let mut sampler = Sampler::<Native>::new(cfg.tracked_set());
+    spawn_broker(cfg.tracked_set());
     let mut pruned_day = i64::MIN;
     let mut policy = FullSpeedPolicy::default();
 
@@ -45,7 +56,9 @@ pub fn run() -> Result<()> {
         }
 
         let sample = sampler.sample();
-        writer.append(&sample.record).map_err(|e| Error(format!("writing history: {e}")))?;
+        if cfg.record {
+            writer.append(&sample.record).map_err(|e| Error(format!("writing history: {e}")))?;
+        }
 
         if cfg.auto_full_speed
             && let (Some(vendor), Some(on_now)) = (sampler.vendor(), sample.vendor.max_cooling)

@@ -82,7 +82,7 @@ Running `--install` again is safe; it refreshes all three.
 
 ## Using spanner
 
-Open the Desktop shortcut. Windows asks for administrator approval each time, because reading the embedded controller and changing power plans require it.
+Open the Desktop shortcut. The window runs as you, with no approval prompt: reading the embedded controller and changing power plans happen in the background recorder, which Task Scheduler starts with administrator rights when you sign in. If the recorder isn't running when you open spanner, the window starts it.
 
 | Page      | Use it to                                                                         |
 |-----------|-----------------------------------------------------------------------------------|
@@ -99,7 +99,7 @@ The recorder marks each sample taken while a tracked app is running. Add your ga
 
 ### Background recording
 
-**Record in the background** turns recording on or off straight away. **Start when you sign in** controls whether it turns on by itself each time you sign in to Windows. Full-speed fans **When hot** relies on background recording, so it pauses while recording is off.
+**Record in the background** turns recording on or off straight away. **Start when you sign in** controls whether the recorder starts by itself each time you sign in to Windows. With recording off the recorder keeps running so the window can still read and change settings, but it writes no history. Full-speed fans **When hot** keeps working either way.
 
 ## How it stays safe
 
@@ -111,6 +111,7 @@ Writing the wrong byte to an embedded controller can misbehave in ways that are 
 - **Validation before writing.** Every change is checked against its allowed values first; a preset with one invalid value writes nothing.
 - **Bounds.** The charge limit cannot be set below 50%.
 - **A sealed window.** The interface is compiled into the program, may not load anything from the network, and can only send a fixed set of typed requests to the backend.
+- **An unprivileged window.** The window never runs as administrator. It sends hardware requests to the recorder over a local pipe that only your account, SYSTEM and administrators can open, and that refuses remote connections. The recorder accepts only spanner's own requests and validates each one, and the window checks that the pipe belongs to spanner before trusting a reply.
 
 Vendor software (MSI Center, Lenovo Vantage and similar) writes some of the same settings. If both are installed, whichever changed a setting last wins; pick one to manage fans and charging.
 
@@ -145,7 +146,8 @@ src/
 ├── platform/          the OS boundary: traits every platform implements
 │   └── windows/       WMI, power plans, PDH counters, Task Scheduler, registry
 ├── app.rs             window and threads
-└── recorder.rs        background recorder
+├── recorder.rs        background recorder and the window's broker
+└── service.rs         requests that need administrator rights, served by the broker
 ui/                    HTML, CSS and JavaScript, embedded at build time
 ```
 
@@ -153,7 +155,8 @@ ui/                    HTML, CSS and JavaScript, embedded at build time
 - **Portable by construction.** Only `platform/` touches the operating system. Linux and macOS support means adding `platform/linux/` or `platform/macos/` that implements the traits in `platform/mod.rs`; the table there lists the native mechanism for each concern. The interface (`wry` and `tao`) and the GPU library (NVML) already run on all three.
 - **Storage.** History is append-only, one file per UTC day, made of fixed 40-byte records in time order. A query binary-searches to the start of the range and then reads sequentially, so memory use stays constant however long the range.
 - **Charts.** Each query is reduced in one pass to one bucket per pixel of chart width, keeping minimum, maximum and mean, so a 30-day chart is as fast as a one-hour one and still shows every spike. Percentiles come from a fixed-bin histogram built in the same pass.
-- **Threads.** The window never waits: hardware access runs on a worker thread, and history queries on their own thread, where a newer query replaces any that has not started.
+- **Privileges.** Only the recorder is elevated, by its Task Scheduler entry. Its broker thread serves the window over a named pipe (`platform/windows/pipe.rs`); presets and history are the user's own files and stay in the window. `--install` and `--uninstall` relaunch themselves elevated when needed.
+- **Threads.** The window never waits: broker requests run on a worker thread, and history queries on their own thread, where a newer query replaces any that has not started.
 
 ## Development
 

@@ -12,12 +12,14 @@ use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteTreeW,
     RegSetValueExW,
 };
+use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows::Win32::System::Threading::{
-    BELOW_NORMAL_PRIORITY_CLASS, CREATE_NO_WINDOW, CreateEventW, CreateMutexW, DETACHED_PROCESS, GetCurrentProcess, OpenMutexW, ResetEvent,
-    SYNCHRONIZATION_SYNCHRONIZE, SetEvent, SetPriorityClass, WaitForSingleObject,
+    BELOW_NORMAL_PRIORITY_CLASS, CREATE_NO_WINDOW, CreateEventW, CreateMutexW, GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenMutexW,
+    OpenProcessToken, ResetEvent, SYNCHRONIZATION_SYNCHRONIZE, SetEvent, SetPriorityClass, WaitForSingleObject,
 };
-use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
-use windows::core::{HSTRING, Interface};
+use windows::Win32::UI::Shell::{IShellLinkW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW, ShellLink};
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::core::{HSTRING, Interface, PCWSTR, w};
 
 use super::com::Com;
 use super::paths;
@@ -101,9 +103,9 @@ impl Integration for System {
         if Self::recorder_running() {
             return Ok(());
         }
-        // Spawned from this elevated process, so it gets the same EC access the sign-in task would.
-        Command::new(env::current_exe()?).arg("--record").creation_flags(CREATE_NO_WINDOW.0 | DETACHED_PROCESS.0).spawn()?;
-        Ok(())
+        // Through the task, so the recorder runs elevated even when asked by the unelevated window; the
+        // signed-in user may run a task registered for them.
+        schtasks(&["/Run", "/TN", TASK_NAME]).map(drop)
     }
 
     fn stop_recorder() -> Result<()> {
@@ -162,6 +164,52 @@ impl Integration for System {
 
     fn lower_priority() {
         let _ = unsafe { SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS) };
+    }
+
+    fn is_elevated() -> bool {
+        unsafe {
+            let mut token = HANDLE::default();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+                return false;
+            }
+            let mut e = TOKEN_ELEVATION::default();
+            let mut len = 0;
+            let ok = GetTokenInformation(token, TokenElevation, Some((&raw mut e).cast()), size_of::<TOKEN_ELEVATION>() as u32, &mut len).is_ok();
+            let _ = CloseHandle(token);
+            ok && e.TokenIsElevated != 0
+        }
+    }
+
+    fn run_elevated(arg: &str) -> Result<u32> {
+        let exe = HSTRING::from(env::current_exe()?.as_os_str());
+        let params = HSTRING::from(arg);
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_NOCLOSEPROCESS,
+            lpVerb: w!("runas"),
+            lpFile: PCWSTR(exe.as_ptr()),
+            lpParameters: PCWSTR(params.as_ptr()),
+            nShow: SW_SHOWNORMAL.0,
+            ..Default::default()
+        };
+        unsafe {
+            ShellExecuteExW(&mut info).map_err(|e| Error(format!("Windows didn't start the elevated step: {e}")))?;
+            let process = info.hProcess;
+            WaitForSingleObject(process, INFINITE);
+            let mut code = 0;
+            let res = GetExitCodeProcess(process, &mut code);
+            let _ = CloseHandle(process);
+            res?;
+            Ok(code)
+        }
+    }
+
+    fn serve_broker(handle: impl FnMut(&str) -> String) -> Result<()> {
+        super::pipe::serve(handle)
+    }
+
+    fn broker_call(msg: &str) -> Result<String> {
+        super::pipe::call(msg, 5000)
     }
 
     fn activate_existing_window(title: &str) -> bool {

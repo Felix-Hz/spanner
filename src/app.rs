@@ -1,6 +1,7 @@
 //! Window and threads.
 //! - UI (main): event loop, window and web view; never blocks.
-//! - worker: owns `Native` (thread-bound) and answers all requests except history and theme.
+//! - worker: answers requests; hardware and shared-data ones go to the recorder's broker (see `service`),
+//!   so the window itself never needs elevation.
 //! - history: runs queries; a newer pending query supersedes older ones.
 
 use std::sync::Mutex;
@@ -21,12 +22,11 @@ use crate::assets;
 use crate::engine::config::RecorderConfig;
 use crate::engine::ipc::{self, Request};
 use crate::engine::presets::Presets;
-use crate::engine::sampler::Sampler;
-use crate::engine::time::{day_of, now_ms};
 use crate::engine::ui_state::{Placement, Theme, UiState};
-use crate::engine::{history, settings, store};
+use crate::engine::history;
+use crate::service;
 use crate::error::{Error, Result};
-use crate::platform::{Integration, Native, Paths, Platform, System};
+use crate::platform::{Integration, Paths, System};
 
 pub const ORIGIN: &str = "https://spanner.localhost/";
 const TITLE: &str = "spanner";
@@ -85,7 +85,8 @@ fn tray(proxy: &EventLoopProxy<UserEvent>) -> Result<TrayIcon> {
     builder.build().map_err(|e| Error(format!("tray icon: {e}")))
 }
 
-type Job = (u32, Request);
+/// Id, parsed request, and the raw envelope the broker needs.
+type Job = (u32, Request, String);
 
 fn window_theme(t: Theme) -> Option<WindowTheme> {
     match t {
@@ -179,7 +180,7 @@ pub fn run() -> Result<()> {
             match ipc::parse(req.body()) {
                 Ok((id, Request::SetTheme(t))) => drop(ipc_proxy.send_event(UserEvent::Theme(id, t))),
                 Ok((id, Request::SetCloseToTray(on))) => drop(ipc_proxy.send_event(UserEvent::CloseToTray(id, on))),
-                Ok((id, r)) => drop(if r.is_history() { hist_tx.send((id, r)) } else { work_tx.send((id, r)) }),
+                Ok((id, r)) => drop(if r.is_history() { hist_tx.send((id, r, String::new())) } else { work_tx.send((id, r, req.body().clone())) }),
                 Err(e) => drop(ipc_proxy.send_event(UserEvent::Reply(ipc::reply_script(0, Err(e))))),
             }
         })
@@ -262,11 +263,9 @@ fn reply(proxy: &EventLoopProxy<UserEvent>, id: u32, result: Result<Value>) {
 
 fn spawn_worker(rx: Receiver<Job>, proxy: EventLoopProxy<UserEvent>) -> Result<()> {
     let body = move || {
-        let cfg = System::config_file().map(|p| RecorderConfig::load(&p)).unwrap_or_default();
-        let mut sampler = Sampler::<Native>::new(cfg.tracked_set());
-        for (id, req) in rx {
+        for (id, req, raw) in rx {
             let uninstall = matches!(req, Request::Uninstall { .. });
-            let result = handle(&mut sampler, req);
+            let result = if service::brokered(&req) { via_broker(&raw).or_else(|e| local_fallback(req, e)) } else { local(req) };
             let ok = result.is_ok();
             reply(&proxy, id, result);
             if uninstall && ok {
@@ -302,89 +301,74 @@ fn spawn_history(rx: Receiver<Job>, proxy: EventLoopProxy<UserEvent>) -> Result<
     thread::Builder::new().name("history".into()).spawn(body).map(drop).map_err(Error::from)
 }
 
-fn last_sample_ms() -> Option<i64> {
-    store::latest(&System::history_dir().ok()?, day_of(now_ms())).ok().flatten().map(|r| r.ts_ms)
+/// Sends the request envelope to the broker. If it isn't listening, starts the recorder task (no prompt:
+/// the user may run their own task) and tries once more.
+fn via_broker(raw: &str) -> Result<Value> {
+    let reply = match System::broker_call(raw) {
+        Ok(r) => r,
+        Err(first) => {
+            if !System::recorder_installed() || System::start_recorder().is_err() {
+                return Err(first);
+            }
+            let mut reply = Err(first);
+            for _ in 0..20 {
+                thread::sleep(Duration::from_millis(250));
+                reply = System::broker_call(raw);
+                if reply.is_ok() {
+                    break;
+                }
+            }
+            reply?
+        }
+    };
+    let v: Value = serde_json::from_str(&reply)?;
+    if v.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(v.get("data").cloned().unwrap_or(Value::Null))
+    } else {
+        Err(Error(v.get("error").and_then(Value::as_str).unwrap_or("the background service failed").to_string()))
+    }
 }
 
-fn handle(s: &mut Sampler<Native>, req: Request) -> Result<Value> {
+/// The user's own files, and installing, which asks for consent itself.
+fn local(req: Request) -> Result<Value> {
+    Ok(match req {
+        Request::Presets => serde_json::to_value(Presets::load(&System::presets_file()?))?,
+        Request::SavePreset(p) => serde_json::to_value(Presets::upsert(&System::presets_file()?, p)?)?,
+        Request::DeletePreset(name) => serde_json::to_value(Presets::delete(&System::presets_file()?, &name)?)?,
+        Request::InstallRecorder => match System::run_elevated("--install")? {
+            0 => Value::Null,
+            _ => return Err(Error::msg("Setup didn't finish. Try again and choose Yes when Windows asks.")),
+        },
+        _ => return Err(Error::msg("not a window request")),
+    })
+}
+
+/// What the window can still say without the broker: enough for the shell, Settings and set-up to work.
+fn local_fallback(req: Request, cause: Error) -> Result<Value> {
+    let down = "spanner's background service isn't running, so it can't read or change the hardware. Set it up in Settings, or restart spanner.";
     Ok(match req {
         Request::Overview => json!({
             "version": env!("CARGO_PKG_VERSION"),
-            "machine": s.vendor().map(|v| v.describe()),
+            "machine": Value::Null,
             "theme": System::ui_state_file().map(|p| UiState::load(&p).theme).unwrap_or_default(),
             "close_to_tray": System::ui_state_file().map(|p| UiState::load(&p).close_to_tray).unwrap_or(true),
             "recorder_installed": System::recorder_installed(),
             "metrics": history::METRICS.iter().map(|m| json!({ "id": m.id, "label": m.label, "unit": m.unit, "group": m.group })).collect::<Vec<_>>(),
         }),
-        Request::Status => {
-            let power = s.platform.power_status();
-            json!({
-                "on_ac": power.on_ac,
-                "battery_pct": power.battery_pct,
-                "power_profile": s.platform.power_profile_name(),
-                "last_sample_ms": last_sample_ms(),
-                "recorder_running": System::recorder_running(),
-            })
-        }
-        Request::Settings => {
-            let mut views = settings::views(&s.platform, s.vendor(), &System::config_file()?);
-            // "When hot" is carried out by the recorder; say so when it isn't running.
-            if let Some(v) = views.iter_mut().find(|v| v.id == "full_speed" && v.current == Some(settings::FULL_SPEED_WHEN_HOT))
-                && !System::recorder_running()
-            {
-                v.status = Some("Needs background recording, which is off. Turn it on in Settings.".into());
-                v.active = Some(false);
-            }
-            serde_json::to_value(views)?
-        }
-        Request::Apply(changes) => serde_json::to_value(settings::apply(&s.platform, s.vendor(), &System::config_file()?, &changes)?)?,
-        Request::Live => serde_json::to_value(s.live())?,
-        Request::SystemInfo => {
-            // The hardware doesn't change while spanner runs, and the WMI reads take a moment.
-            static INFO: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
-            INFO.get_or_init(|| serde_json::to_value(s.system_info()).unwrap_or(Value::Null)).clone()
-        }
         Request::RecorderStatus => json!({
             "installed": System::recorder_installed(),
-            "running": System::recorder_running(),
+            "running": false,
             "start_at_sign_in": System::starts_at_sign_in(),
-            "last_sample_ms": last_sample_ms(),
+            "last_sample_ms": service::last_sample_ms(),
             "config": RecorderConfig::load(&System::config_file()?),
         }),
-        Request::SaveRecorder(cfg) => {
-            cfg.save(&System::config_file()?)?;
-            s.tracked = cfg.tracked_set();
-            Value::Null
-        }
-        Request::SetRecorder(sw) => {
-            if let Some(on) = sw.start_at_sign_in {
-                System::set_start_at_sign_in(on)?;
-            }
-            match sw.running {
-                Some(true) => System::start_recorder()?,
-                Some(false) => System::stop_recorder()?,
-                None => {}
-            }
-            Value::Null
-        }
-        Request::InstallRecorder => {
-            System::install()?;
-            Value::Null
-        }
-        Request::Uninstall { restore_defaults } => {
-            let mut problems = Vec::new();
-            if restore_defaults {
-                let config = System::config_file()?;
-                let defaults = settings::defaults_as_changes(&s.platform, s.vendor(), &config);
-                let outcomes = settings::apply(&s.platform, s.vendor(), &config, &defaults)?;
-                problems.extend(outcomes.into_iter().filter_map(|o| Some(format!("{}: {}", o.id, o.error?))));
-            }
-            problems.extend(System::uninstall()?);
-            json!({ "problems": problems })
-        }
-        Request::Presets => serde_json::to_value(Presets::load(&System::presets_file()?))?,
-        Request::SavePreset(p) => serde_json::to_value(Presets::upsert(&System::presets_file()?, p)?)?,
-        Request::DeletePreset(name) => serde_json::to_value(Presets::delete(&System::presets_file()?, &name)?)?,
-        Request::History(_) | Request::SetTheme(_) | Request::SetCloseToTray(_) => return Err(Error::msg("handled on another thread")),
+        Request::Status => json!({
+            "on_ac": Value::Null,
+            "battery_pct": Value::Null,
+            "power_profile": Value::Null,
+            "last_sample_ms": service::last_sample_ms(),
+            "recorder_running": false,
+        }),
+        _ => return Err(Error(format!("{down} ({})", cause.0))),
     })
 }
