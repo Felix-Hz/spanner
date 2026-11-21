@@ -70,6 +70,10 @@ pub enum Request {
     Live,
     /// Hardware and OS description; read once per run.
     SystemInfo,
+    /// Disk space, scan progress and the last scan of where space goes.
+    Storage,
+    /// Starts a scan of the system drive unless one is running.
+    StorageScan,
     History(Query),
     RecorderStatus,
     SaveRecorder(RecorderConfig),
@@ -107,6 +111,8 @@ pub fn parse(body: &str) -> Result<(u32, Request)> {
         "apply" => Request::Apply(serde_json::from_value::<ApplyParams>(p)?.changes),
         "live" => Request::Live,
         "system_info" => Request::SystemInfo,
+        "storage" => Request::Storage,
+        "storage_scan" => Request::StorageScan,
         "history" => Request::History(serde_json::from_value(p)?),
         "recorder_status" => Request::RecorderStatus,
         "save_recorder" => Request::SaveRecorder(serde_json::from_value(p)?),

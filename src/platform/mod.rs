@@ -121,6 +121,15 @@ pub struct Os {
     pub boot_ms: Option<i64>,
 }
 
+/// Size and free space of the drive the OS runs from.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DiskSpace {
+    /// The drive's root, such as `C:\`.
+    pub root: String,
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum DialogKind {
     Info,
@@ -151,6 +160,8 @@ pub trait Platform {
     fn battery_rate_mw(&self) -> Option<i32>;
     /// Hardware and OS description. Slow (WMI), so callers cache it.
     fn system_info(&self) -> SystemInfo;
+    /// The system drive's size and free space; cheap.
+    fn disk_space(&self) -> Option<DiskSpace>;
     /// Generic CPU temperature (hottest ACPI thermal zone), used when no vendor driver provides one.
     /// Read after `cpu()`, which collects the counters.
     fn acpi_temp_c(&self) -> Option<u8>;

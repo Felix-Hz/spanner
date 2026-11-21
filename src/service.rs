@@ -4,6 +4,10 @@
 //! The broker serves only `brokered` requests and validates each the same way the window would, so a
 //! process of the same user gains nothing beyond spanner's own settings by talking to it.
 
+use std::path::Path;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, OnceLock};
+
 use serde_json::{Value, json};
 
 use crate::engine::config::RecorderConfig;
@@ -11,9 +15,62 @@ use crate::engine::ipc::{self, Request};
 use crate::engine::sampler::Sampler;
 use crate::engine::time::{day_of, now_ms};
 use crate::engine::ui_state::UiState;
-use crate::engine::{history, settings, store};
+use crate::engine::{history, settings, storage, store};
 use crate::error::{Error, Result};
-use crate::platform::{Integration, Native, Paths, Platform, System};
+use crate::platform::{DiskSpace, Integration, Native, Paths, Platform, System};
+
+/// The storage scan runs on its own thread; requests read its state and the cached last result.
+struct ScanState {
+    running: bool,
+    progress: Arc<storage::Progress>,
+    last: Option<storage::Scan>,
+}
+
+fn scan_state() -> &'static Mutex<ScanState> {
+    static STATE: OnceLock<Mutex<ScanState>> = OnceLock::new();
+    STATE.get_or_init(|| {
+        // The last result survives restarts in the shared data folder.
+        let last = System::data_dir().ok().and_then(|d| std::fs::read(d.join("storage.json")).ok()).and_then(|b| serde_json::from_slice(&b).ok());
+        Mutex::new(ScanState { running: false, progress: Arc::default(), last })
+    })
+}
+
+fn storage_json(disk: Option<DiskSpace>) -> Value {
+    let st = scan_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    json!({
+        "disk": disk,
+        "scanning": st.running,
+        "progress": { "files": st.progress.files.load(Ordering::Relaxed), "bytes": st.progress.bytes.load(Ordering::Relaxed) },
+        "last": st.last,
+    })
+}
+
+fn start_scan(root: String) -> Result<()> {
+    let progress = {
+        let mut st = scan_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if st.running {
+            return Ok(());
+        }
+        st.running = true;
+        st.progress = Arc::default();
+        st.progress.clone()
+    };
+    std::thread::Builder::new()
+        .name("storage-scan".into())
+        .spawn(move || {
+            let result = storage::scan(Path::new(&root), now_ms(), &progress);
+            if let Ok(dir) = System::data_dir()
+                && let Ok(bytes) = serde_json::to_vec(&result)
+            {
+                let _ = std::fs::write(dir.join("storage.json"), bytes);
+            }
+            let mut st = scan_state().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            st.last = Some(result);
+            st.running = false;
+        })
+        .map(drop)
+        .map_err(Error::from)
+}
 
 pub fn last_sample_ms() -> Option<i64> {
     store::latest(&System::history_dir().ok()?, day_of(now_ms())).ok().flatten().map(|r| r.ts_ms)
@@ -89,6 +146,12 @@ pub fn handle(s: &mut Sampler<Native>, req: Request) -> Result<Value> {
             // The hardware doesn't change while spanner runs, and the WMI reads take a moment.
             static INFO: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
             INFO.get_or_init(|| serde_json::to_value(s.system_info()).unwrap_or(Value::Null)).clone()
+        }
+        Request::Storage => storage_json(s.platform.disk_space()),
+        Request::StorageScan => {
+            let disk = s.platform.disk_space().ok_or_else(|| Error::msg("Couldn't find the system drive."))?;
+            start_scan(disk.root.clone())?;
+            storage_json(Some(disk))
         }
         Request::RecorderStatus => json!({
             "installed": System::recorder_installed(),

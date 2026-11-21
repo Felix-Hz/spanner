@@ -8,6 +8,7 @@ pub mod ipc;
 pub mod presets;
 pub mod sampler;
 pub mod settings;
+pub mod storage;
 pub mod store;
 pub mod time;
 pub mod ui_state;

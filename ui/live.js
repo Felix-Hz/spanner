@@ -2,7 +2,7 @@
 
 import { call } from "./ipc.js";
 import { overview } from "./shared.js";
-import { auto, collapsible, fmtClock, h, NONE, num, prefs, toast, fill } from "./format.js";
+import { ago, auto, collapsible, fmtClock, h, NONE, num, prefs, toast, fill } from "./format.js";
 
 const RATES = [1, 5, 15, 30, 60];
 const CUSTOM_RANGE = [1, 600];
@@ -114,9 +114,96 @@ function build() {
       );
       return collapsible("live", title.toLowerCase().replace(/\s+/g, "-"), title, grid, null, chips);
     }),
+    storageSection(),
     machineSection(),
   );
   built = true;
+}
+
+// ── Storage: disk used is cheap and kept current; where space goes needs a scan the user starts ──
+
+const storageBody = h("div", { class: "storage" }, h("p", { class: "empty" }, "Reading the drive…"));
+let storageTimer = null;
+
+function storageSection() {
+  return collapsible("live", "storage", "Storage", storageBody);
+}
+
+const gbOf = (b) => `${num(b / 1e9, b >= 1e11 ? 0 : 1)} GB`;
+const pct = (part, whole) => (whole ? (part / whole) * 100 : 0);
+
+/** One ranked row: name (and an optional path), a bar sized against `max`, the value in mono. */
+function rankRow(name, path, bytes, max, total) {
+  const bar = h("span", { class: "fill" });
+  bar.style.width = `${Math.max(0.5, pct(bytes, max))}%`;
+  return h(
+    "li",
+    {},
+    h("span", { class: "what" }, h("span", { class: "name" }, name), path ? h("span", { class: "path" }, path) : null),
+    h("span", { class: "track" }, bar),
+    h("span", { class: "size" }, `${gbOf(bytes)} · ${num(pct(bytes, total))}%`),
+  );
+}
+
+async function scanStorage(btn) {
+  btn.disabled = true;
+  try {
+    renderStorage(await call("storage_scan"));
+    pollStorage(1000);
+  } catch (e) {
+    btn.disabled = false;
+    toast(`Couldn't start the scan. ${e.message}`, { kind: "error" });
+  }
+}
+
+function renderStorage(st) {
+  const d = st.disk;
+  const parts = [];
+  if (d) {
+    const used = d.total_bytes - d.free_bytes;
+    parts.push(
+      h(
+        "div",
+        { class: "tiles" },
+        h("article", { class: "tile" }, h("span", { class: "label" }, `Disk used · ${d.root}`), h("span", { class: "num" }, num(pct(used, d.total_bytes)), h("small", {}, "%")), h("span", { class: "sub" }, `${gbOf(used)} of ${gbOf(d.total_bytes)}`)),
+        h("article", { class: "tile" }, h("span", { class: "label" }, "Free"), h("span", { class: "num" }, num(d.free_bytes / 1e9), h("small", {}, "GB")), h("span", { class: "sub" }, d.free_bytes / d.total_bytes < 0.1 ? "Running low" : "")),
+      ),
+    );
+  }
+  const last = st.last;
+  if (last && d) {
+    parts.push(
+      h("h3", { class: "eyebrow storage-h" }, "Where it goes"),
+      h("ol", { class: "rank" }, last.categories.map((c) => rankRow(c.name, null, c.bytes, last.categories[0].bytes, d.total_bytes))),
+      h("h3", { class: "eyebrow storage-h" }, "Largest"),
+      h("ol", { class: "rank" }, last.largest.map((i) => rankRow(i.name, i.path, i.bytes, last.largest[0].bytes, d.total_bytes))),
+    );
+  }
+  const btn = h("button", { type: "button", class: "button", disabled: st.scanning, onclick: (e) => scanStorage(e.currentTarget) }, last ? "Scan again" : "Scan");
+  const note = st.scanning
+    ? `[ … ] Scanning ${d?.root ?? "the drive"} · ${num(st.progress.files)} files · ${gbOf(st.progress.bytes)} so far`
+    : last
+      ? join(`Scanned ${ago(last.scanned_at_ms)}`, `${num(last.files)} files`, `took ${num(last.duration_ms / 1000)} s`, last.unreadable && `${num(last.unreadable)} folders couldn't be read`)
+      : "Not scanned yet. A scan reads every folder on the drive and takes under a minute; it runs at low priority.";
+  parts.push(h("div", { class: "storage-foot" }, h("span", { class: "meta" }, note), btn));
+  fill(storageBody, parts);
+}
+
+/** While a scan runs, refresh quickly; otherwise every minute, for free space. */
+function pollStorage(ms) {
+  clearTimeout(storageTimer);
+  storageTimer = setTimeout(loadStorage, ms);
+}
+
+async function loadStorage() {
+  try {
+    const st = await call("storage");
+    renderStorage(st);
+    pollStorage(st.scanning ? 1000 : 60000);
+  } catch (e) {
+    fill(storageBody, h("p", { class: "empty" }, `Couldn't read the drive. ${e.message}`));
+    pollStorage(60000);
+  }
 }
 
 // ── Machine: what the hardware is, read once ──
@@ -303,12 +390,14 @@ export function show() {
     renderRate();
     loadMachine();
   }
+  loadStorage();
   if (timer !== null) return;
   timer = 0;
   tick(++generation);
 }
 
 export function hide() {
+  clearTimeout(storageTimer);
   clearTimeout(timer);
   timer = null;
   generation++;

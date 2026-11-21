@@ -17,7 +17,7 @@ use windows::Win32::System::Com::COINIT_MULTITHREADED;
 use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW};
 use windows::core::HSTRING;
 
-use super::{AcDc, CpuSample, DialogKind, EcTransport, Knob, Platform, PowerStatus, SystemInfo};
+use super::{AcDc, CpuSample, DialogKind, DiskSpace, EcTransport, Knob, Platform, PowerStatus, SystemInfo};
 use crate::error::Result;
 
 pub use install::System;
@@ -69,6 +69,10 @@ impl Platform for Native {
 
     fn battery_rate_mw(&self) -> Option<i32> {
         self.root_wmi.as_ref().and_then(info::battery_rate_mw)
+    }
+
+    fn disk_space(&self) -> Option<DiskSpace> {
+        sensors::disk_space()
     }
 
     fn system_info(&self) -> SystemInfo {

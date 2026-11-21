@@ -10,12 +10,13 @@ use windows::Win32::System::Performance::{
     PDH_FMT, PDH_FMT_COUNTERVALUE, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PdhAddEnglishCounterW,
     PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhGetFormattedCounterValue, PdhOpenQueryW,
 };
+use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows::core::{HSTRING, PCWSTR};
 
 use crate::error::{Result, win32};
-use crate::platform::{CpuSample, PowerStatus};
+use crate::platform::{CpuSample, DiskSpace, PowerStatus};
 
 /// PDH_FMT_NOCAP100: "% Processor Performance" exceeds 100 while boosting.
 const PDH_FMT_NOCAP100: PDH_FMT = PDH_FMT(0x0000_8000);
@@ -130,6 +131,15 @@ pub fn mem_available_mb() -> Option<u32> {
 
 pub fn mem_total_mb() -> Option<u32> {
     u32::try_from(memory_status()?.ullTotalPhys / (1024 * 1024)).ok()
+}
+
+/// The drive Windows runs from (`%SystemDrive%`, normally C:).
+pub fn disk_space() -> Option<DiskSpace> {
+    let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+    let root = format!("{drive}\\");
+    let (mut free, mut total) = (0u64, 0u64);
+    unsafe { GetDiskFreeSpaceExW(&HSTRING::from(root.as_str()), None, Some(&mut total), Some(&mut free)).ok()? };
+    Some(DiskSpace { root, total_bytes: total, free_bytes: free })
 }
 
 pub fn running_app(names: &HashSet<String>) -> Option<String> {
