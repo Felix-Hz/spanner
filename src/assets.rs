@@ -33,6 +33,7 @@ assets! {
     "/fonts/newsreader-display.woff2" => "fonts/newsreader-display.woff2", "font/woff2";
     "/fonts/jetbrains-mono.woff2" => "fonts/jetbrains-mono.woff2", "font/woff2";
     "/fonts/departure-mono.woff2" => "fonts/departure-mono.woff2", "font/woff2";
+    "/fonts/instrument-sans.woff2" => "fonts/instrument-sans.woff2", "font/woff2";
 }
 
 pub fn respond(path: &str) -> Response<Cow<'static, [u8]>> {

@@ -61,14 +61,14 @@ async function commit(changes, message, undoable = true) {
     await reload();
     if (failed.length) {
       const names = failed.map((f) => byId(f.id)?.name ?? f.id).join(", ");
-      toast(`Couldn't change ${names}. ${failed[0].error ?? ""}`.trim(), { ms: 8000 });
+      toast(`Couldn't change ${names}. ${failed[0].error ?? ""}`.trim(), { kind: "error" });
     } else {
       toast(message, { details, action: undoable ? { label: "Undo", run: () => commit(before, "Changes undone.", false) } : null });
       setTimeout(() => recheck(changes), RECHECK_MS);
     }
   } catch (e) {
     await reload();
-    toast(`Nothing was changed. ${e.message}`, { ms: 8000 });
+    toast(`Nothing was changed. ${e.message}`, { kind: "error" });
   } finally {
     changes.forEach((c) => busy.delete(c.id));
     render();
@@ -85,7 +85,7 @@ async function recheck(changes) {
   if (!reverted.length) return;
   const v = byId(reverted[0].id);
   const who = v.id.startsWith("msi.") ? "MSI Center" : "other software";
-  toast(`${v.name} was set back to ${optionLabel(v, v.current)}, probably by ${who}. Change it there as well, or turn off its control of this setting.`, { ms: 12000 });
+  toast(`${v.name} was set back to ${optionLabel(v, v.current)}, probably by ${who}. Change it there as well, or turn off its control of this setting.`, { kind: "info", ms: 12000 });
 }
 
 function set(v, value, name = v.name, label = optionLabel(v, value)) {
@@ -121,7 +121,7 @@ function allPresets() {
 
 function applyPreset(p) {
   const changes = presetChanges(p);
-  if (!changes.length) return toast(`Everything already matches ${p.name}.`);
+  if (!changes.length) return toast(`Everything already matches ${p.name}.`, { kind: "info" });
   commit(changes, `${p.name} applied: ${changes.length} change${changes.length === 1 ? "" : "s"}.`);
 }
 
@@ -220,7 +220,7 @@ function savePresetDialog() {
           details: Object.entries(values).map(([id, value]) => `${byId(id)?.name ?? id}: ${optionLabel(byId(id), value)}`),
         });
       } catch (e) {
-        toast(`Couldn't save the preset. ${e.message}`, { ms: 8000 });
+        toast(`Couldn't save the preset. ${e.message}`, { kind: "error" });
       }
     },
     { once: true },

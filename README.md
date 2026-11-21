@@ -170,7 +170,7 @@ The icon is drawn on a 16-pixel grid in `scripts/make_icon.py` and scaled up wit
 ## Acknowledgements
 
 - Embedded-controller addresses: [msi-ec](https://github.com/BeardOverflow/msi-ec).
-- Typefaces: [Newsreader](https://github.com/productiontype/Newsreader) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) under the SIL Open Font License 1.1, and [Departure Mono](https://departuremono.com) under the MIT License. Their licences are in `ui/fonts/`; the bundled files are Latin subsets.
+- Typefaces: [Newsreader](https://github.com/productiontype/Newsreader), [Instrument Sans](https://github.com/Instrument/instrument-sans) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) under the SIL Open Font License 1.1, and [Departure Mono](https://departuremono.com) under the MIT License. Their licences are in `ui/fonts/`; the bundled files are Latin subsets.
 
 ## Licence
 

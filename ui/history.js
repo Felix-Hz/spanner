@@ -110,44 +110,96 @@ function sourceSelect() {
 }
 
 // ── Zoom ──
+//
+// A zoom is a fixed window inside the chosen range. Each zoom in, drag or pan pushes the previous window,
+// so Esc steps back one level and Reset (or 0, or a double-click) returns to the range.
 
-/** Zooms the current window by `factor` (below 1 zooms in) around a point given as a 0..1 fraction. */
-function zoomBy(factor, at = 0.5) {
-  const [from, to] = timeWindow();
-  const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, (to - from) * factor));
-  const pivot = from + (to - from) * at;
-  let next = [pivot - span * at, pivot + span * (1 - at)];
+/** Windows to step back through, oldest first. */
+const zoomStack = [];
+/** Bucket under the shared cursor and the bucket count of the last render, so keyboard zoom can centre on it. */
+let cursorAt = null;
+let bucketCount = 0;
+
+const now = () => Date.now();
+
+function clampWindow([from, to]) {
+  const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, to - from));
+  let next = [from, from + span];
   // Never past now: shift back instead of showing empty future.
-  const now = Date.now();
-  if (next[1] > now) next = [next[0] - (next[1] - now), now];
-  setZoom(next);
+  if (next[1] > now()) next = [now() - span, now()];
+  return next;
 }
 
-function setZoom(window) {
+/** Zooms by `factor` (below 1 zooms in) around a 0..1 fraction; by default the cursor, else the middle. */
+function zoomBy(factor, at = cursorAt != null && bucketCount ? (cursorAt + 0.5) / bucketCount : 0.5) {
+  const [from, to] = timeWindow();
+  const span = Math.min(MAX_SPAN, Math.max(MIN_SPAN, (to - from) * factor));
+  if (span === to - from) return;
+  const pivot = from + (to - from) * at;
+  setZoom(clampWindow([pivot - span * at, pivot + span * (1 - at)]));
+}
+
+/** Moves the window by `dir` halves of its width: −1 earlier, 1 later. */
+function pan(dir) {
+  const [from, to] = timeWindow();
+  const step = ((to - from) / 2) * dir;
+  if (dir > 0 && to >= now() - 1000) return;
+  setZoom(clampWindow([from + step, to + step]));
+}
+
+function setZoom(window, remember = true) {
+  if (remember) zoomStack.push(state.zoom);
   state.zoom = window;
+  cursorAt = null;
   buildZoom();
   query();
 }
 
+function stepBack() {
+  if (!state.zoom) return;
+  setZoom(zoomStack.pop() ?? null, false);
+}
+
 function resetZoom() {
   if (!state.zoom) return;
-  setZoom(null);
+  zoomStack.length = 0;
+  setZoom(null, false);
 }
 
 function buildZoom() {
+  const [from, to] = timeWindow();
+  const span = to - from;
+  const btn = (label, title, onclick, disabled = false) =>
+    h("button", { type: "button", class: "button", title, "aria-label": title, onclick, disabled }, label);
   fill(
-    document.getElementById("zoom"),
-    h("button", { type: "button", class: "button", title: "Zoom out (−)", "aria-label": "Zoom out", onclick: () => zoomBy(2) }, "−"),
-    h("button", { type: "button", class: "button", title: "Zoom in (+)", "aria-label": "Zoom in", onclick: () => zoomBy(0.5) }, "+"),
-    state.zoom ? h("button", { type: "button", class: "button", title: "Back to the selected range (0)", onclick: resetZoom }, "Reset zoom") : null,
+    document.getElementById("zoom-bar"),
+    h(
+      "span",
+      { class: "eyebrow zoom-state", "aria-live": "polite" },
+      state.zoom
+        ? [h("b", {}, "Zoomed in "), fmtRange(from, to)]
+        : "Drag across a chart to zoom · Shift + scroll pans · Esc steps back",
+    ),
+    h(
+      "span",
+      { class: "zoom", role: "group", "aria-label": "Zoom" },
+      btn("‹", "Earlier ([)", () => pan(-1)),
+      btn("−", "Zoom out (−)", () => zoomBy(2), span >= MAX_SPAN),
+      btn("+", "Zoom in (+)", () => zoomBy(0.5), span <= MIN_SPAN),
+      btn("›", "Later (])", () => pan(1), to >= now() - 1000),
+      btn("Reset", "Back to the chosen range (0)", resetZoom, !state.zoom),
+    ),
   );
 }
 
 document.addEventListener("keydown", (e) => {
-  if (!visible || e.ctrlKey || e.altKey || e.metaKey || e.target.closest("input, select, textarea")) return;
+  if (!visible || e.ctrlKey || e.altKey || e.metaKey || e.target.closest("input, select, textarea, dialog")) return;
   if (e.key === "+" || e.key === "=") zoomBy(0.5);
   else if (e.key === "-") zoomBy(2);
+  else if (e.key === "[") pan(-1);
+  else if (e.key === "]") pan(1);
   else if (e.key === "0") resetZoom();
+  else if (e.key === "Escape" && state.zoom) stepBack();
 });
 
 function build() {
@@ -157,9 +209,9 @@ function build() {
       if (k === "custom" && state.from == null) [state.from, state.to] = [Date.now() - 24 * HOUR, Date.now()];
       state.range = k;
       state.zoom = null;
+      zoomStack.length = 0;
       changed();
     }),
-    h("span", { class: "zoom", id: "zoom", role: "group", "aria-label": "Zoom" }),
   );
   buildZoom();
 
@@ -204,7 +256,7 @@ function build() {
                 title: g,
                 onclick: () => {
                   if (state.metrics.has(m.id)) {
-                    if (state.metrics.size === 1) return toast("At least one chart has to stay on.");
+                    if (state.metrics.size === 1) return toast("At least one chart has to stay on.", { kind: "info" });
                     state.metrics.delete(m.id);
                   } else state.metrics.add(m.id);
                   changed();
@@ -245,7 +297,7 @@ function sourceLabel() {
 async function query() {
   if (!visible) return;
   const [from_ms, to_ms] = timeWindow();
-  if (!(from_ms < to_ms)) return toast("The end of the range has to be after the start.");
+  if (!(from_ms < to_ms)) return toast("The end of the range has to be after the start.", { kind: "info" });
   const width = Math.max(320, chartsEl.clientWidth);
   // One bucket per pixel of plot width: the finest detail the chart can show.
   const buckets = Math.min(2000, Math.round(width - 44));
@@ -291,15 +343,30 @@ function render(res, width) {
   }
   const span = res.to_ms - res.from_ms;
   const handlers = {
-    hover: (i) => charts.forEach((c) => c.setCursor(i)),
-    select: (a, b) => setZoom([res.from_ms + a * span, res.from_ms + Math.max(b * span, a * span + MIN_SPAN)]),
+    hover: (i) => {
+      cursorAt = i;
+      charts.forEach((c) => c.setCursor(i));
+    },
+    select: (a, b) => setZoom(clampWindow([res.from_ms + a * span, res.from_ms + Math.max(b * span, a * span + MIN_SPAN)])),
     zoom: (at, factor) => zoomBy(factor, at),
+    pan,
+    reset: resetZoom,
   };
+  bucketCount = res.series[0]?.buckets.length ?? 0;
   charts = res.series.map((sr) => chart(sr, res, width, handlers));
   fill(chartsEl, ...charts.map((c) => c.el));
 }
 
-new ResizeObserver(debounce(() => visible && query(), 200)).observe(chartsEl);
+// Only a width change alters the bucket count; height changes (a table opening) must not re-render.
+let lastWidth = 0;
+new ResizeObserver(
+  debounce(() => {
+    const w = chartsEl.clientWidth;
+    if (!visible || w === lastWidth) return;
+    lastWidth = w;
+    query();
+  }, 200),
+).observe(chartsEl);
 
 export async function show() {
   visible = true;
@@ -308,7 +375,7 @@ export async function show() {
       catalogue = (await overview).metrics;
       intervalSecs = (await call("recorder_status")).config.interval_secs;
     } catch (e) {
-      toast(e.message);
+      toast(e.message, { kind: "error" });
     }
     for (const id of [...state.metrics]) if (!catalogue.some((m) => m.id === id)) state.metrics.delete(id);
     if (state.metrics.size === 0) DEFAULT_METRICS.forEach((id) => state.metrics.add(id));

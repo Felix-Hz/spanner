@@ -45,8 +45,9 @@ export function auto(v) {
   return num(v, a > 0 && a < 10 ? 1 : 0);
 }
 
+/** A space before every unit except percentages: "88.4 °C", "4,812 RPM", "60%", "12% of time". */
 export function unitSep(unit) {
-  return unit && !unit.startsWith("°") && unit !== "%" ? " " : "";
+  return unit && !unit.startsWith("%") ? " " : "";
 }
 
 export function withUnit(v, unit = "") {
@@ -86,23 +87,51 @@ export function ago(ms) {
 }
 
 let toastTimer;
+let shownKind = null;
+/** A message that arrived while an error was showing; it waits until the error is dismissed. */
+let queued = null;
+
+const TAGS = { ok: "[ OK ]", info: "[ INFO ]", progress: "[ … ]", error: "[ ERROR ]" };
 
 /**
- * Shows a message. `action` adds a button such as Undo; `details` (lines of text) adds an arrow that
+ * Shows a message. `kind` is ok, info, progress or error: errors take the Ember ground, are announced
+ * assertively and stay until dismissed; a later non-error message waits behind an error instead of
+ * replacing it. `action` adds a button such as Undo; `details` (lines of text) adds an arrow that
  * expands the list. The toast stays up while expanded or hovered.
  */
-export function toast(text, { action = null, details = null, ms = action || details ? 7000 : 3200 } = {}) {
+export function toast(text, { kind = "ok", action = null, details = null, ms = action || details ? 7000 : 3200 } = {}) {
   const el = document.getElementById("toast");
+  if (shownKind === "error" && kind !== "error" && el.classList.contains("show")) {
+    queued = [text, { kind, action, details, ms }];
+    return;
+  }
   const more = document.getElementById("toast-more");
   const list = document.getElementById("toast-details");
   const btn = document.getElementById("toast-action");
-  const hide = () => el.classList.remove("show");
+  const close = document.getElementById("toast-close");
+  const sticky = kind === "error";
+  const hide = () => {
+    clearTimeout(toastTimer);
+    el.classList.remove("show");
+    shownKind = null;
+    if (queued) {
+      const [t, o] = queued;
+      queued = null;
+      toast(t, o);
+    }
+  };
   const arm = () => {
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(hide, ms);
+    if (!sticky) toastTimer = setTimeout(hide, ms);
   };
 
+  shownKind = kind;
+  el.classList.toggle("error", sticky);
+  el.setAttribute("role", sticky ? "alert" : "status");
+  el.setAttribute("aria-live", sticky ? "assertive" : "polite");
+  document.getElementById("toast-tag").textContent = TAGS[kind] ?? TAGS.ok;
   document.getElementById("toast-text").textContent = text;
+  close.onclick = hide;
   btn.hidden = !action;
   btn.onclick = null;
   if (action) {
@@ -131,6 +160,12 @@ export function toast(text, { action = null, details = null, ms = action || deta
   el.classList.add("show");
   arm();
 }
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.getElementById("toast")?.classList.contains("show") && !e.target.closest("dialog")) {
+    document.getElementById("toast-close").click();
+  }
+});
 
 export function debounce(fn, ms) {
   let t;

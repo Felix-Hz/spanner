@@ -7,6 +7,7 @@
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/app.css">
   <script type="module" src="/main.js"></script>
 </head>
@@ -38,6 +39,7 @@
       <section class="page" id="configure" role="tabpanel" aria-labelledby="tab-configure">
         <header class="page-head">
           <div>
+            <span class="eyebrow">Power and cooling</span>
             <h1>Configure</h1>
             <p class="page-sub">Changes take effect immediately.</p>
           </div>
@@ -49,6 +51,7 @@
       <section class="page" id="live" role="tabpanel" aria-labelledby="tab-live" hidden>
         <header class="page-head">
           <div>
+            <span class="eyebrow">Sensors</span>
             <h1>Live</h1>
             <p class="page-sub" id="live-sub">&nbsp;</p>
           </div>
@@ -60,6 +63,7 @@
       <section class="page" id="history" role="tabpanel" aria-labelledby="tab-history" hidden>
         <header class="page-head">
           <div>
+            <span class="eyebrow">Recorded data</span>
             <h1>History</h1>
             <p class="page-sub" id="history-sub">&nbsp;</p>
           </div>
@@ -67,6 +71,7 @@
         </header>
         <div class="page-body">
           <div class="filters" id="filters"></div>
+          <div class="zoom-bar" id="zoom-bar"></div>
           <div id="charts" aria-live="polite"></div>
         </div>
       </section>
@@ -74,6 +79,7 @@
       <section class="page" id="settings-page" role="tabpanel" aria-labelledby="tab-settings" hidden>
         <header class="page-head">
           <div>
+            <span class="eyebrow">Application</span>
             <h1>Settings</h1>
             <p class="page-sub">How spanner looks and records.</p>
           </div>
@@ -94,8 +100,10 @@
   <div class="toast" id="toast" role="status" aria-live="polite">
     <div class="toast-main">
       <button class="toast-more" id="toast-more" type="button" aria-expanded="false" aria-controls="toast-details" aria-label="Show what changed" hidden>›</button>
+      <span class="tag" id="toast-tag">[ OK ]</span>
       <span id="toast-text"></span>
       <button class="link" id="toast-action" type="button" hidden></button>
+      <button class="toast-close" id="toast-close" type="button" aria-label="Dismiss">[ X ]</button>
     </div>
     <ul class="toast-details" id="toast-details" hidden></ul>
   </div>
@@ -122,8 +130,8 @@
       <p>This removes the background recorder, all recorded history, the Desktop shortcut and the entry in Installed apps. The program files stay where you built them.</p>
       <label class="check"><input type="checkbox" id="uninstall-restore" checked> Restore default settings first</label>
       <div class="sheet-actions">
-        <button class="button" value="cancel">Cancel</button>
-        <button class="button primary" value="confirm">Uninstall</button>
+        <button class="button" value="cancel" autofocus>Cancel</button>
+        <button class="button danger" value="confirm">Uninstall</button>
       </div>
     </form>
   </dialog>

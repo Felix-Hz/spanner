@@ -1,7 +1,7 @@
 // Live: reads at the chosen rate while visible; each tile keeps the last 120 readings as a trend.
 
 import { call } from "./ipc.js";
-import { auto, collapsible, fmtClock, h, NONE, num, prefs, s, toast, fill } from "./format.js";
+import { auto, collapsible, fmtClock, h, NONE, num, prefs, toast, fill } from "./format.js";
 
 const RATES = [1, 5, 15, 30, 60];
 const CUSTOM_RANGE = [1, 600];
@@ -68,11 +68,9 @@ function build() {
           items.map(([key, label]) => {
             const numEl = h("span", { class: "num" }, NONE);
             const sub = h("span", { class: "sub" });
-            const path = s("path");
-            const spark = s("svg", { class: "spark", viewBox: `0 0 ${WINDOW - 1} 24`, preserveAspectRatio: "none", "aria-hidden": "true" });
-            spark.append(path);
+            const spark = h("canvas", { class: "spark", "aria-hidden": "true" });
             const el = h("article", { class: "tile" }, h("span", { class: "label" }, label), numEl, sub, spark);
-            tiles.set(key, { el, numEl, sub, path, ring: new Ring(WINDOW) });
+            tiles.set(key, { el, numEl, sub, spark, ring: new Ring(WINDOW) });
             return el;
           }),
         ),
@@ -82,21 +80,51 @@ function build() {
   built = true;
 }
 
-function sparkPath(ring) {
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/** Trend line in ink-3, latest reading marked in data cobalt, or Ember while the tile is in alert. */
+function drawSpark(canvas, ring, alert) {
+  const d = Math.max(1, Math.round(devicePixelRatio || 1));
+  const w = canvas.clientWidth;
+  const ht = canvas.clientHeight;
+  if (!w || !ht) return;
+  canvas.width = Math.round(w * d);
+  canvas.height = Math.round(ht * d);
+  const g = canvas.getContext("2d");
+  g.clearRect(0, 0, canvas.width, canvas.height);
   const vals = [...ring.values()];
   const finite = vals.filter(Number.isFinite);
-  if (finite.length < 2) return "";
+  if (finite.length < 2) return;
   let lo = Math.min(...finite);
   let hi = Math.max(...finite);
   if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
-  let d = "";
+  const pad = 4 * d;
+  // Scale across the readings taken so far, so a fresh window doesn't bunch into one corner.
+  const first = vals.findIndex(Number.isFinite);
+  const x = (i) => pad + ((i - first) / Math.max(1, vals.length - 1 - first)) * (canvas.width - 2 * pad);
+  const y = (v) => canvas.height - pad - ((v - lo) / (hi - lo)) * (canvas.height - 2 * pad);
+  g.strokeStyle = cssVar("--ink-3");
+  g.lineWidth = 1.25 * d;
+  g.lineJoin = g.lineCap = "round";
+  g.beginPath();
   let pen = false;
+  let last = null;
   vals.forEach((v, i) => {
     if (!Number.isFinite(v)) return void (pen = false);
-    d += `${pen ? "L" : "M"}${i} ${(22 - ((v - lo) / (hi - lo)) * 20).toFixed(2)}`;
+    pen ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v));
     pen = true;
+    last = [x(i), y(v)];
   });
-  return d;
+  g.stroke();
+  if (!last) return;
+  g.fillStyle = cssVar("--paper");
+  g.beginPath();
+  g.arc(last[0], last[1], 4.5 * d, 0, 2 * Math.PI);
+  g.fill();
+  g.fillStyle = cssVar(alert ? "--ember" : "--d1");
+  g.beginPath();
+  g.arc(last[0], last[1], 3 * d, 0, 2 * Math.PI);
+  g.fill();
 }
 
 function update(d) {
@@ -107,8 +135,9 @@ function update(d) {
       t.ring.push(v);
       fill(t.numEl, v == null ? NONE : unit === "GB" ? num(v, 1) : auto(v), v == null ? "" : h("small", {}, unit));
       t.sub.textContent = note?.(d) || "";
-      t.el.classList.toggle("alert", Boolean(alert?.(d)));
-      t.path.setAttribute("d", sparkPath(t.ring));
+      const on = Boolean(alert?.(d));
+      t.el.classList.toggle("alert", on);
+      drawSpark(t.spark, t.ring, on);
     }
   }
   document.getElementById("live-sub").textContent = join(`Updated ${fmtClock(d.ts_ms)}`, d.tracked_app && "Tracked app running");
@@ -163,7 +192,7 @@ function renderRate() {
               const n = Math.round(Number(e.target.value));
               if (Number.isFinite(n) && n >= min && n <= max) setPeriod(n);
               else {
-                toast(`Choose between ${min} and ${max} seconds.`);
+                toast(`Choose between ${min} and ${max} seconds.`, { kind: "info" });
                 e.target.value = periodSecs;
               }
             },

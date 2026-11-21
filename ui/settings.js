@@ -22,7 +22,7 @@ export function paintTheme(t) {
 function setTheme(t) {
   paintTheme(t);
   render();
-  call("set_theme", { theme: t }).catch((e) => toast(`Couldn't save the theme. ${e.message}`));
+  call("set_theme", { theme: t }).catch((e) => toast(`Couldn't save the theme. ${e.message}`, { kind: "error" }));
 }
 
 function setCloseToTray(on) {
@@ -30,7 +30,7 @@ function setCloseToTray(on) {
   render();
   call("set_close_to_tray", { on })
     .then(() => toast(on ? "Closing the window now keeps spanner in the notification area." : "Closing the window now quits spanner."))
-    .catch((e) => toast(`Couldn't save this setting. ${e.message}`));
+    .catch((e) => toast(`Couldn't save this setting. ${e.message}`, { kind: "error" }));
 }
 
 // ── Recorder ──
@@ -42,7 +42,7 @@ async function saveRecorder(patch, message) {
     recorder.config = config;
     toast(message);
   } catch (e) {
-    toast(e.message, { ms: 7000 });
+    toast(e.message, { kind: "error" });
   }
   render();
 }
@@ -53,7 +53,7 @@ async function switchRecorder(patch, message) {
     document.dispatchEvent(new Event("recorder-changed"));
     toast(message);
   } catch (e) {
-    toast(e.message, { ms: 7000 });
+    toast(e.message, { kind: "error" });
   }
   // The recorder takes a moment to start or stop.
   setTimeout(load, 800);
@@ -65,7 +65,7 @@ async function setUpRecorder() {
     document.dispatchEvent(new Event("recorder-changed"));
     toast("Background recording is set up and on.");
   } catch (e) {
-    toast(e.message, { ms: 7000 });
+    toast(e.message, { kind: "error" });
   }
   load();
 }
@@ -86,7 +86,7 @@ async function deletePreset(p) {
       },
     });
   } catch (e) {
-    toast(e.message, { ms: 7000 });
+    toast(e.message, { kind: "error" });
   }
 }
 
@@ -101,12 +101,12 @@ function uninstall() {
     async () => {
       if (dlg.returnValue !== "confirm") return;
       const restore = document.getElementById("uninstall-restore").checked;
-      toast("Uninstalling…", { ms: 15000 });
+      toast("Uninstalling…", { kind: "progress", ms: 15000 });
       try {
         const { problems } = await call("uninstall", { restore_defaults: restore });
         toast(problems.length ? `Uninstalled, but some items couldn't be removed: ${problems.join("; ")}` : "spanner is uninstalled. Closing…", { ms: 15000 });
       } catch (e) {
-        toast(`Uninstall failed. ${e.message}`, { ms: 10000 });
+        toast(`Uninstall failed. ${e.message}`, { kind: "error" });
       }
     },
     { once: true },
@@ -147,7 +147,7 @@ function numberField(label, value, min, max, unit, onCommit) {
       const n = Math.round(Number(e.target.value));
       if (Number.isFinite(n) && n >= min && n <= max) onCommit(n);
       else {
-        toast(`${label} has to be between ${min} and ${max}.`);
+        toast(`${label} has to be between ${min} and ${max}.`, { kind: "info" });
         e.target.value = value;
       }
     },
@@ -161,7 +161,7 @@ function trackedApps(apps) {
   const add = () => {
     const file = exe.value.trim();
     if (!file) return exe.focus();
-    if (apps.some((a) => a.exe.toLowerCase() === file.toLowerCase())) return toast(`${file} is already tracked.`);
+    if (apps.some((a) => a.exe.toLowerCase() === file.toLowerCase())) return toast(`${file} is already tracked.`, { kind: "info" });
     const app = { exe: file, ...(name.value.trim() ? { name: name.value.trim() } : {}) };
     saveRecorder({ tracked_apps: [...apps, app] }, `Tracking ${app.name ?? file}.`);
   };
@@ -292,7 +292,7 @@ function render() {
       row(
         "Uninstall spanner",
         "Removes background recording, recorded history, the Desktop shortcut and the entry in Installed apps.",
-        h("button", { class: "button", type: "button", onclick: uninstall }, "Uninstall…"),
+        h("button", { class: "button danger", type: "button", onclick: uninstall }, "Uninstall…"),
       ),
     ),
   );
@@ -303,7 +303,7 @@ async function load() {
     [info, recorder, presets] = await Promise.all([overview, call("recorder_status"), call("presets")]);
     closeToTray = info.close_to_tray ?? true;
   } catch (e) {
-    toast(`Couldn't read the settings. ${e.message}`, { ms: 7000 });
+    toast(`Couldn't read the settings. ${e.message}`, { kind: "error" });
   }
   render();
 }
