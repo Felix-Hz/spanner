@@ -17,6 +17,21 @@ for (const t of tabs) {
 }
 let current = null;
 
+// Pixel marks are drawn on a 16-cell grid. Size each to a whole number of device pixels per cell, the
+// nearest to its intended size, so no cell renders wider than another at any Windows scaling.
+function crispMarks() {
+  const dpr = devicePixelRatio || 1;
+  const fit = (el, target) => {
+    const css = (16 * Math.max(1, Math.round((target * dpr) / 16))) / dpr;
+    el.style.width = `${css}px`;
+    el.style.height = `${css}px`;
+  };
+  fit(document.querySelector(".brand img"), 20);
+  document.querySelectorAll(".nav .icon").forEach((i) => fit(i, 16));
+  matchMedia(`(resolution: ${dpr}dppx)`).addEventListener("change", crispMarks, { once: true });
+}
+crispMarks();
+
 // ── Navigation ──
 
 function select(name, focus = false) {

@@ -15,14 +15,15 @@ INK = (0x1D, 0x3E, 0xA8)  # --color-accent
 PAPER = (0xFA, 0xFA, 0xF8)  # --color-paper
 SIZES = [16, 32, 48, 64, 128, 256]
 
-# Open-ended spanner on the diagonal: jaw top right, handle to bottom left. Bounding box is
-# columns 2-13 and rows 2-13, leaving an equal 2 px margin on every side.
+# Open-ended spanner on the diagonal: jaw top right, handle to bottom left. The head is mirror-symmetric
+# about the handle axis (x + y = 15) with a three-cell slot, so the two prongs read as jaws rather than
+# an enclosed hole. Bounding box is columns 2-13 and rows 2-13: an equal 2 px margin on every side.
 MARK = """
 ................
 ................
 ..........##....
-.........###.#..
-.........##.##..
+.........##.....
+.........##..#..
 .........#####..
 .........####...
 ........##......
