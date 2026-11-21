@@ -165,7 +165,7 @@ ui/                    HTML, CSS and JavaScript, embedded at build time
 cargo test                       # unit tests: storage, queries, settings, EC map, protocol
 cargo build                      # debug build; web view developer tools enabled
 cargo build --release            # optimised, stripped build
-pwsh scripts/rebuild.ps1 -Open   # rebuild while installed: stops and restarts the recorder
+pwsh scripts/rebuild.ps1 -Open   # rebuild while installed: builds to target/stage, then swaps the exe in
 python -I scripts/make_icon.py   # regenerate the icon from its pixel grid
 ```
 
