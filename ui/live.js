@@ -1,6 +1,7 @@
 // Live: reads at the chosen rate while visible; each tile keeps the last 120 readings as a trend.
 
 import { call } from "./ipc.js";
+import { overview } from "./shared.js";
 import { auto, collapsible, fmtClock, h, NONE, num, prefs, toast, fill } from "./format.js";
 
 const RATES = [1, 5, 15, 30, 60];
@@ -44,11 +45,23 @@ const GROUPS = [
     ["cpu_fan", "CPU fan", "RPM", (d) => d.cpu_fan_rpm, (d) => (d.max_cooling ? "Full speed" : status(d, "Fan profile") ?? "")],
     ["gpu_fan", "GPU fan", "RPM", (d) => d.gpu_fan_rpm, (d) => (d.cpu_fan_rpm === 0 && d.gpu_fan_rpm === 0 ? "Fans stopped" : "")],
   ]],
+  ["Memory and storage", [
+    ["mem", "Memory used", "GB", (d) => usedGb(d), (d) => (d.mem_total_mb ? `${num(usedPct(d))}% of ${num(d.mem_total_mb / 1024)} GB` : ""), (d) => usedPct(d) >= 90],
+    ["disk", "Disk activity", "%", (d) => d.disk_active_pct, (d) => (d.disk_active_pct >= 90 ? "Saturated" : "")],
+  ]],
   ["Power", [
     ["battery", "Battery", "%", (d) => d.battery_pct, (d) => join(d.on_ac ? "Plugged in" : "On battery", status(d, "Charge limit") && `limit ${status(d, "Charge limit")}`)],
-    ["mem", "Free memory", "GB", (d) => (d.mem_avail_mb == null ? null : d.mem_avail_mb / 1024)],
+    ["battery_rate", "Battery power", "W", (d) => (d.battery_rate_w == null ? null : Math.abs(d.battery_rate_w)), (d) => batteryState(d)],
   ]],
 ];
+
+/** Memory in use: total minus available, from the same reading. */
+const usedGb = (d) => (d.mem_total_mb == null || d.mem_avail_mb == null ? null : (d.mem_total_mb - d.mem_avail_mb) / 1024);
+const usedPct = (d) => (d.mem_total_mb ? ((d.mem_total_mb - d.mem_avail_mb) / d.mem_total_mb) * 100 : null);
+const batteryState = (d) => (d.battery_rate_w == null ? "" : d.battery_rate_w > 0 ? "Charging" : d.battery_rate_w < 0 ? "Discharging" : "Not charging");
+
+/** Tiles the user turned off, by key. */
+const hiddenTiles = new Set(prefs.get("live.hidden", []));
 
 const tiles = new Map();
 let built = false;
@@ -57,27 +70,108 @@ let generation = 0;
 
 function build() {
   fill(document.getElementById("figures"),
-    ...GROUPS.map(([title, items]) =>
-      collapsible(
-        "live",
-        title.toLowerCase(),
-        title,
-        h(
-          "div",
-          { class: "tiles" },
-          items.map(([key, label]) => {
-            const numEl = h("span", { class: "num" }, NONE);
-            const sub = h("span", { class: "sub" });
-            const spark = h("canvas", { class: "spark", "aria-hidden": "true" });
-            const el = h("article", { class: "tile" }, h("span", { class: "label" }, label), numEl, sub, spark);
-            tiles.set(key, { el, numEl, sub, spark, ring: new Ring(WINDOW) });
-            return el;
-          }),
+    ...GROUPS.map(([title, items]) => {
+      const grid = h(
+        "div",
+        { class: "tiles" },
+        items.map(([key, label]) => {
+          const numEl = h("span", { class: "num" }, NONE);
+          const sub = h("span", { class: "sub" });
+          const spark = h("canvas", { class: "spark", "aria-hidden": "true" });
+          const el = h("article", { class: "tile" }, h("span", { class: "label" }, label), numEl, sub, spark);
+          el.hidden = hiddenTiles.has(key);
+          tiles.set(key, { el, numEl, sub, spark, ring: new Ring(WINDOW) });
+          return el;
+        }),
+      );
+      // Which tiles show, beside the heading: the same chips as History's chart picker.
+      const chips = h(
+        "div",
+        { class: "chips aside", role: "group", "aria-label": `${title} readings to show` },
+        items.map(([key, label]) =>
+          h(
+            "button",
+            {
+              type: "button",
+              class: "chip",
+              "aria-pressed": String(!hiddenTiles.has(key)),
+              onclick: (e) => {
+                const showing = items.filter(([k]) => !hiddenTiles.has(k));
+                if (!hiddenTiles.has(key) && showing.length === 1) {
+                  toast("At least one reading has to stay on in each section.", { kind: "info" });
+                  return;
+                }
+                if (hiddenTiles.has(key)) hiddenTiles.delete(key);
+                else hiddenTiles.add(key);
+                prefs.set("live.hidden", [...hiddenTiles]);
+                e.currentTarget.setAttribute("aria-pressed", String(!hiddenTiles.has(key)));
+                tiles.get(key).el.hidden = hiddenTiles.has(key);
+              },
+            },
+            label,
+          ),
         ),
-      ),
-    ),
+      );
+      return collapsible("live", title.toLowerCase().replace(/\s+/g, "-"), title, grid, null, chips);
+    }),
+    machineSection(),
   );
   built = true;
+}
+
+// ── Machine: what the hardware is, read once ──
+
+const machineBody = h("dl", { class: "spec" }, h("dt", {}, "Reading"), h("dd", {}, "Asking Windows…"));
+
+function machineSection() {
+  return collapsible("live", "machine", "Machine", machineBody);
+}
+
+const gb = (mb) => `${num(mb / 1024)} GB`;
+const ghz = (mhz) => `${num(mhz / 1000, 1)} GHz`;
+
+function uptime(bootMs) {
+  const mins = Math.max(0, Math.round((Date.now() - bootMs) / 60000));
+  const days = Math.floor(mins / 1440);
+  const hrs = Math.floor((mins % 1440) / 60);
+  return days ? `${days} d ${hrs} h` : `${hrs} h ${mins % 60} min`;
+}
+
+async function loadMachine() {
+  let info;
+  let machine = null;
+  try {
+    [info, { machine }] = await Promise.all([call("system_info"), overview]);
+  } catch (e) {
+    fill(machineBody, h("dt", {}, "Hardware"), h("dd", {}, `Couldn't read it. ${e.message}`));
+    return;
+  }
+  const rows = [];
+  const add = (label, ...lines) => {
+    const vals = lines.filter(Boolean);
+    if (vals.length) rows.push(h("dt", {}, label), h("dd", {}, vals.map((v) => h("span", { class: "line" }, v))));
+  };
+  add("Model", info.model);
+  const p = info.processor;
+  if (p) add("Processor", join(p.name, p.cores && `${p.cores} cores, ${p.threads} threads`, p.base_mhz && `${ghz(p.base_mhz)} base`));
+  const m = info.memory;
+  if (m) {
+    const same = new Set(m.modules_mb).size === 1;
+    const layout = same ? `${m.modules_mb.length} × ${gb(m.modules_mb[0])}` : m.modules_mb.map(gb).join(" + ");
+    add("Memory", join(`${gb(m.total_mb)}${m.kind ? ` ${m.kind}` : ""}`, m.speed_mts && `${num(m.speed_mts)} MT/s`, layout));
+  }
+  add("Graphics", ...info.graphics.map((g) => join(g.name, g.vram_mb && gb(g.vram_mb), g.driver && `driver ${g.driver}`)));
+  add("Displays", ...info.displays.map((d) => join(`${d.width} × ${d.height}`, d.hz && `${d.hz} Hz`)));
+  add("Storage", ...info.drives.map((d) => join(d.model, `${num(d.size_gb)} GB`)));
+  const b = info.battery;
+  if (b) {
+    const health = (b.full_mwh / b.design_mwh) * 100;
+    add("Battery", join(`${num(health)}% of design capacity`, `${num(b.full_mwh / 1000, 1)} of ${num(b.design_mwh / 1000, 1)} Wh`, b.cycles && `${num(b.cycles)} cycles`));
+  }
+  const os = info.os;
+  if (os) add("Windows", join(os.name, os.build && `build ${os.build}`, os.boot_ms && `up ${uptime(os.boot_ms)}`));
+  add("Firmware", join(info.bios && `BIOS ${info.bios}`, machine));
+  fill(machineBody, rows.length ? rows : [h("dt", {}, "Hardware"), h("dd", {}, "Windows didn't describe this machine.")]);
 }
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -207,6 +301,7 @@ export function show() {
   if (!built) {
     build();
     renderRate();
+    loadMachine();
   }
   if (timer !== null) return;
   timer = 0;

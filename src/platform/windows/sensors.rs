@@ -27,6 +27,8 @@ pub struct Cpu {
     frequency: PDH_HCOUNTER,
     /// All ACPI thermal zones; fallback CPU temperature when no vendor driver reads one.
     thermal: Option<PDH_HCOUNTER>,
+    /// Idle share of all physical disks; busy is its complement ("% Disk Time" exceeds 100 with queues).
+    disk_idle: Option<PDH_HCOUNTER>,
 }
 
 const PDH_MORE_DATA: u32 = 0x8000_07D2;
@@ -46,6 +48,7 @@ impl Cpu {
                 performance: add(r"\Processor Information(_Total)\% Processor Performance")?,
                 frequency: add(r"\Processor Information(_Total)\Processor Frequency")?,
                 thermal: add(r"\Thermal Zone Information(*)\Temperature").ok(),
+                disk_idle: add(r"\PhysicalDisk(_Total)\% Idle Time").ok(),
                 query,
             };
             // Rate counters diff against the previous collection.
@@ -70,6 +73,11 @@ impl Cpu {
 }
 
 impl Cpu {
+    /// Busy share of all physical disks, from the last `sample()` collection.
+    pub fn disk_active_pct(&self) -> Option<f64> {
+        Self::value(self.disk_idle?).map(|idle| (100.0 - idle).clamp(0.0, 100.0))
+    }
+
     /// Hottest ACPI thermal zone, from the last `sample()` collection. Zones report Kelvin.
     pub fn acpi_temp_c(&self) -> Option<u8> {
         let counter = self.thermal?;
@@ -110,10 +118,18 @@ pub fn power_status() -> PowerStatus {
     PowerStatus { on_ac: s.ACLineStatus == 1, battery_pct: (s.BatteryLifePercent <= 100).then_some(s.BatteryLifePercent) }
 }
 
-pub fn mem_available_mb() -> Option<u32> {
+fn memory_status() -> Option<MEMORYSTATUSEX> {
     let mut m = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
     unsafe { GlobalMemoryStatusEx(&mut m) }.ok()?;
-    u32::try_from(m.ullAvailPhys / (1024 * 1024)).ok()
+    Some(m)
+}
+
+pub fn mem_available_mb() -> Option<u32> {
+    u32::try_from(memory_status()?.ullAvailPhys / (1024 * 1024)).ok()
+}
+
+pub fn mem_total_mb() -> Option<u32> {
+    u32::try_from(memory_status()?.ullTotalPhys / (1024 * 1024)).ok()
 }
 
 pub fn running_app(names: &HashSet<String>) -> Option<String> {

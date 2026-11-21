@@ -68,6 +68,8 @@ pub enum Request {
     Settings,
     Apply(Vec<Change>),
     Live,
+    /// Hardware and OS description; read once per run.
+    SystemInfo,
     History(Query),
     RecorderStatus,
     SaveRecorder(RecorderConfig),
@@ -104,6 +106,7 @@ pub fn parse(body: &str) -> Result<(u32, Request)> {
         "settings" => Request::Settings,
         "apply" => Request::Apply(serde_json::from_value::<ApplyParams>(p)?.changes),
         "live" => Request::Live,
+        "system_info" => Request::SystemInfo,
         "history" => Request::History(serde_json::from_value(p)?),
         "recorder_status" => Request::RecorderStatus,
         "save_recorder" => Request::SaveRecorder(serde_json::from_value(p)?),

@@ -7,7 +7,9 @@ use windows::Win32::System::Com::{COINIT, CoInitializeEx, CoUninitialize, SAFEAR
 use windows::Win32::System::Ole::{
     SafeArrayAccessData, SafeArrayCreateVector, SafeArrayGetLBound, SafeArrayGetUBound, SafeArrayUnaccessData,
 };
-use windows::Win32::System::Variant::{VARENUM, VARIANT, VT_ARRAY, VT_BSTR, VT_UI1, VT_UNKNOWN, VariantClear};
+use windows::Win32::System::Variant::{
+    VARENUM, VARIANT, VT_ARRAY, VT_BOOL, VT_BSTR, VT_I1, VT_I2, VT_I4, VT_I8, VT_UI1, VT_UI2, VT_UI4, VT_UI8, VT_UNKNOWN, VariantClear,
+};
 use windows::core::{IUnknown, Interface};
 
 use crate::error::{Error, Result};
@@ -101,6 +103,30 @@ impl Var {
 
     pub fn to_string_opt(&self) -> Option<String> {
         (self.vt() == VT_BSTR).then(|| unsafe { self.0.Anonymous.Anonymous.Anonymous.bstrVal.to_string() })
+    }
+
+    /// Any integer VARIANT. WMI passes `uint64` and `sint64` as decimal strings, so those parse too.
+    pub fn to_i64_opt(&self) -> Option<i64> {
+        let vt = self.vt();
+        unsafe {
+            let u = &self.0.Anonymous.Anonymous.Anonymous;
+            match vt {
+                VT_I1 => Some(i64::from(u.cVal)),
+                VT_UI1 => Some(i64::from(u.bVal)),
+                VT_I2 => Some(i64::from(u.iVal)),
+                VT_UI2 => Some(i64::from(u.uiVal)),
+                VT_I4 => Some(i64::from(u.lVal)),
+                VT_UI4 => Some(i64::from(u.ulVal)),
+                VT_I8 => Some(u.llVal),
+                VT_UI8 => i64::try_from(u.ullVal).ok(),
+                VT_BSTR => u.bstrVal.to_string().trim().parse().ok(),
+                _ => None,
+            }
+        }
+    }
+
+    pub fn to_bool_opt(&self) -> Option<bool> {
+        (self.vt() == VT_BOOL).then(|| unsafe { self.0.Anonymous.Anonymous.Anonymous.boolVal.as_bool() })
     }
 }
 

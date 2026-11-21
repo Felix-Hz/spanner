@@ -177,9 +177,10 @@ export function debounce(fn, ms) {
 
 /**
  * A section whose heading folds its body. State is remembered per page and section.
- * `meta` (optional) is shown at the right of the heading.
+ * `meta` (optional) is shown at the right of the heading, inside the toggle; `aside` (optional) sits
+ * beside the heading outside it, for controls of its own (a button can't contain buttons).
  */
-export function collapsible(page, key, title, body, meta = null) {
+export function collapsible(page, key, title, body, meta = null, aside = null) {
   const pref = `collapsed.${page}.${key}`;
   let collapsed = prefs.get(pref, false);
   const content = h("div", { class: "section-body", id: `${page}-${key}-body` }, body);
@@ -191,7 +192,7 @@ export function collapsible(page, key, title, body, meta = null) {
     h("h2", {}, title),
     meta,
   );
-  const el = h("section", { class: `section${collapsed ? " collapsed" : ""}` }, h("div", { class: "section-head" }, toggle), content);
+  const el = h("section", { class: `section${collapsed ? " collapsed" : ""}` }, h("div", { class: "section-head" }, toggle, aside), content);
   toggle.addEventListener("click", () => {
     collapsed = !collapsed;
     prefs.set(pref, collapsed);

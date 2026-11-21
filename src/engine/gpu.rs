@@ -29,6 +29,13 @@ impl Default for Gpu {
 }
 
 impl Gpu {
+    /// Name and total memory of the first NVML device, for the hardware description.
+    pub fn describe(&mut self) -> Option<(String, u64)> {
+        self.sample()?;
+        let dev = self.nvml.as_ref()?.device_by_index(0).ok()?;
+        Some((dev.name().ok()?, dev.memory_info().ok()?.total / (1024 * 1024)))
+    }
+
     pub fn sample(&mut self) -> Option<GpuSample> {
         if self.nvml.is_none() && Instant::now() >= self.next_try {
             self.nvml = Nvml::init().ok();

@@ -37,6 +37,27 @@ impl<P: Platform> Sampler<P> {
         self.vendor.as_deref()
     }
 
+    /// The platform's hardware description with the dedicated GPU's memory from NVML, which WMI caps at 4 GB.
+    pub fn system_info(&mut self) -> crate::platform::SystemInfo {
+        let mut info = self.platform.system_info();
+        if let Some((name, total_mb)) = self.gpu.describe()
+            && let Some(g) = info.graphics.iter_mut().find(|g| name.contains(&g.name) || g.name.contains(&name))
+        {
+            g.vram_mb = Some(total_mb);
+        }
+        info
+    }
+
+    /// A sample plus readings only the Live page shows; kept out of `sample()` so recording stays cheap.
+    pub fn live(&mut self) -> Live {
+        let mut live = Live::from(self.sample());
+        let p = &self.platform;
+        live.mem_total_mb = p.mem_total_mb();
+        live.disk_active_pct = p.disk_active_pct().map(|v| v as f32);
+        live.battery_rate_w = p.battery_rate_mw().map(|mw| mw as f32 / 1000.0);
+        live
+    }
+
     pub fn sample(&mut self) -> Sample {
         let vendor = self.vendor.as_ref().map(|v| v.readings(Access { ec: self.platform.ec() })).unwrap_or_default();
         let p = &mut self.platform;
@@ -103,6 +124,11 @@ pub struct Live {
     pub on_ac: bool,
     pub battery_pct: Option<u8>,
     pub mem_avail_mb: Option<u32>,
+    pub mem_total_mb: Option<u32>,
+    /// Busy share of all physical disks.
+    pub disk_active_pct: Option<f32>,
+    /// Watts: positive while charging, negative while discharging.
+    pub battery_rate_w: Option<f32>,
     pub tracked_app: bool,
 }
 
@@ -136,6 +162,9 @@ impl From<Sample> for Live {
             on_ac: r.has(flag::ON_AC),
             battery_pct: r.battery_pct,
             mem_avail_mb: r.mem_avail_mb,
+            mem_total_mb: None,
+            disk_active_pct: None,
+            battery_rate_w: None,
             tracked_app: r.has(flag::TRACKED_APP),
         }
     }

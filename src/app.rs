@@ -21,7 +21,7 @@ use crate::assets;
 use crate::engine::config::RecorderConfig;
 use crate::engine::ipc::{self, Request};
 use crate::engine::presets::Presets;
-use crate::engine::sampler::{Live, Sampler};
+use crate::engine::sampler::Sampler;
 use crate::engine::time::{day_of, now_ms};
 use crate::engine::ui_state::{Placement, Theme, UiState};
 use crate::engine::{history, settings, store};
@@ -338,7 +338,12 @@ fn handle(s: &mut Sampler<Native>, req: Request) -> Result<Value> {
             serde_json::to_value(views)?
         }
         Request::Apply(changes) => serde_json::to_value(settings::apply(&s.platform, s.vendor(), &System::config_file()?, &changes)?)?,
-        Request::Live => serde_json::to_value(Live::from(s.sample()))?,
+        Request::Live => serde_json::to_value(s.live())?,
+        Request::SystemInfo => {
+            // The hardware doesn't change while spanner runs, and the WMI reads take a moment.
+            static INFO: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+            INFO.get_or_init(|| serde_json::to_value(s.system_info()).unwrap_or(Value::Null)).clone()
+        }
         Request::RecorderStatus => json!({
             "installed": System::recorder_installed(),
             "running": System::recorder_running(),

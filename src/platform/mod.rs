@@ -53,6 +53,74 @@ pub struct PowerStatus {
     pub battery_pct: Option<u8>,
 }
 
+/// What the machine is, read once. Every part is optional: a missing class or property leaves it out.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct SystemInfo {
+    pub model: Option<String>,
+    pub processor: Option<Processor>,
+    pub memory: Option<Memory>,
+    pub graphics: Vec<Graphics>,
+    pub displays: Vec<Display>,
+    pub drives: Vec<Drive>,
+    pub battery: Option<BatteryHealth>,
+    pub os: Option<Os>,
+    pub bios: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Processor {
+    pub name: String,
+    pub cores: Option<u32>,
+    pub threads: Option<u32>,
+    pub base_mhz: Option<u32>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Memory {
+    pub total_mb: u64,
+    /// "DDR4", "LPDDR5" and so on, from the SMBIOS memory type.
+    pub kind: Option<String>,
+    pub speed_mts: Option<u32>,
+    /// Size of each installed module.
+    pub modules_mb: Vec<u64>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Graphics {
+    pub name: String,
+    pub driver: Option<String>,
+    /// Dedicated memory; `None` for integrated graphics, which share system memory.
+    pub vram_mb: Option<u64>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Display {
+    pub width: u32,
+    pub height: u32,
+    pub hz: Option<u32>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Drive {
+    pub model: String,
+    pub size_gb: u64,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct BatteryHealth {
+    pub design_mwh: u32,
+    pub full_mwh: u32,
+    pub cycles: Option<u32>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Os {
+    pub name: String,
+    pub version: Option<String>,
+    pub build: Option<String>,
+    pub boot_ms: Option<i64>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum DialogKind {
     Info,
@@ -76,6 +144,13 @@ pub trait Platform {
     fn cpu(&mut self) -> Option<CpuSample>;
     fn power_status(&self) -> PowerStatus;
     fn mem_available_mb(&self) -> Option<u32>;
+    fn mem_total_mb(&self) -> Option<u32>;
+    /// Share of time any physical disk was busy, from the last `cpu()` collection.
+    fn disk_active_pct(&self) -> Option<f64>;
+    /// Battery power in milliwatts: positive while charging, negative while discharging.
+    fn battery_rate_mw(&self) -> Option<i32>;
+    /// Hardware and OS description. Slow (WMI), so callers cache it.
+    fn system_info(&self) -> SystemInfo;
     /// Generic CPU temperature (hottest ACPI thermal zone), used when no vendor driver provides one.
     /// Read after `cpu()`, which collects the counters.
     fn acpi_temp_c(&self) -> Option<u8>;
